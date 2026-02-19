@@ -28,12 +28,15 @@ Non-defaulters are established listed companies (or PSUs) with no wilful-default
 
 ## wilful_defaulters_50.csv
 
-**50 wilful defaulters** for the Fulcrum project. Source: **RBI top-100 list** (RTI response to Indian Express), as on **June 30, 2024**. Columns:
+**50 wilful defaulters** for the Fulcrum project. **All companies are BSE/NSE listed** (or were listed at default) so annual reports can be fetched free from the exchanges. Every CIN in this list is **L (public limited)**; no U CIN (private/unlisted) companies remain. Unlisted companies from the original list were replaced with listed wilful/defaulters; sector mix kept as close as possible; CINs verified. Columns:
 
 - **company_name** – Borrower name (as in RBI list)
-- **cin** – Empty; resolve via MCA search or entity-resolution step
-- **amount_crore** – Amount owed (Rs crore)
-- **source** – Citation
+- **cin** – CIN (resolved via MCA search or entity-resolution step)
+- **amount_crore** – Amount owed at default (Rs crore)
+- **default_year** – Year the company “went bust”: NCLT CIRP admission year, or (e.g. Kingfisher) the year banks declared it a wilful defaulter. Sourced from NCLT/IBBI, news and IBC case law.
+- **fy_before_default** – **Last financial year before default** (year ending March). Equals `default_year - 1`. Use this year when fetching AOC-4 so you get financials from the year before they defaulted.
+- For **SVOGL** and **First Leasing**, `default_year`/`fy_before_default` may be blank; fill from IBBI/NCLT if needed.
+- **sector** – Sector (for sector mix and matching with non-defaulters)
 
 **Next step:** Resolve CIN using the CIN resolver script (searches MCA "Find CIN" by company name; you solve CAPTCHA when prompted). Then run the CIBIL→CIN→MCA pipeline to fetch MCA reports.
 
@@ -44,8 +47,9 @@ Non-defaulters are established listed companies (or PSUs) with no wilful-default
 **50 non-defaulters (control group)** for the Fulcrum project. Sector-matched to the defaulter list so the model compares like-with-like. All are established listed companies (or PSUs) with no wilful-defaulter classification. Columns:
 
 - **company_name** – Borrower name
-- **cin** – Empty; resolve via MCA search
+- **cin** – CIN (resolved via MCA search)
 - **sector** – Sector (matches defaulter sectors)
+- **amount_crore** – Loan amount or related figure (Rs crore); fill from annual report / total borrowings for comparison with defaulters.
 - **notes** – Brief note (e.g. Tata Group, PSU, listed)
 
 **Usage:** Same as defaulters – resolve CIN, then run the CIBIL→CIN→MCA pipeline.

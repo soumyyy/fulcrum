@@ -3,17 +3,20 @@
 MCA portal automation: search by CIN and fetch company report / public documents.
 
 Uses Playwright for browser automation. MCA requires CAPTCHA on search; this module
-supports manual CAPTCHA entry (browser pauses) or optional OCR (future).
+pauses for manual CAPTCHA entry (do not use --headless).
 
 Flow:
-  1. Open MCA View Public Documents (or Master Company Info).
-  2. Enter CIN (and ROC if needed); solve CAPTCHA (manual or hook).
-  3. Navigate to document list (e.g. Annual Returns and Balance Sheet).
-  4. List/download documents into data/mca/reports/{cin}/.
+  1. Open MCA View Public Documents, enter CIN (and ROC if needed), solve CAPTCHA.
+  2. Submit search; after results, try to open document list for this company.
+  3. Select category "Annual Returns and Balance Sheet eForms", select year(s).
+  4. Collect document links and attempt to download PDFs to data/mca/reports/{cin}/.
+
+Note: MCA may require login for some downloads; max 5 docs per transaction. If download
+fails, screenshot and HTML are still saved under _debug/ for inspection.
 
 Usage:
-  - Run as script: python -m scripts.mca_fetcher --cin L27100MH1995PLC084207
-  - Or import: mca_fetch_report(cin="...", output_dir=Path("data/mca/reports"))
+  - Run as script: python scripts/mca_fetcher.py --cin L27100MH1995PLC084207
+  - Or via pipeline: python scripts/cibil_mca_pipeline.py run --input data/cibil/wilful_defaulters_50.csv
 """
 from __future__ import annotations
 
@@ -125,23 +128,61 @@ def run_mca_fetch_with_playwright(
 
             time.sleep(min(5, delay_after_search))
 
-            # 6) Check result: list of companies or document categories
-            # If we get company list, click through to document categories for this CIN
-            body_text = page.inner_text("body")
-            if "document" in body_text.lower() or "category" in body_text.lower():
-                result["documents_found"] = 1  # Placeholder; real count from table
-                result["success"] = True
-                result["message"] = "Reached document section; implement document listing/download as next step"
-            elif "no result" in body_text.lower() or "not found" in body_text.lower():
-                result["message"] = "No company/document found for this CIN"
-            else:
-                result["success"] = True
-                result["message"] = "Search submitted; page structure may need selector updates for document list"
-
-            # Save screenshot and HTML for debugging
+            safe_cin = re.sub(r"[^\w\-]", "_", cin)
+            company_dir = output_dir / safe_cin
+            company_dir.mkdir(parents=True, exist_ok=True)
             debug_dir = output_dir / "_debug"
             debug_dir.mkdir(exist_ok=True)
-            safe_cin = re.sub(r"[^\w\-]", "_", cin)
+
+            body_text = page.inner_text("body")
+            if "no result" in body_text.lower() or "not found" in body_text.lower():
+                result["message"] = "No company/document found for this CIN"
+                page.screenshot(path=debug_dir / f"{safe_cin}_after_search.png")
+                with open(debug_dir / f"{safe_cin}_after_search.html", "w", encoding="utf-8") as f:
+                    f.write(page.content())
+                return result
+
+            result["success"] = True
+
+            # 6) Look for direct PDF links on the result page; click each to trigger download
+            saved_paths: list[str] = []
+            pdf_links = page.query_selector_all('a[href*=".pdf"], a[href*=".PDF"]')
+            for i, link in enumerate(pdf_links[:10]):
+                try:
+                    with page.expect_download(timeout=20000) as download_info:
+                        link.click()
+                    download = download_info.value
+                    fname = download.suggested_filename or f"doc_{i+1}.pdf"
+                    dest = company_dir / re.sub(r'[^\w\-.]', '_', fname)
+                    download.save_as(dest)
+                    saved_paths.append(str(dest))
+                    result["documents_found"] += 1
+                    time.sleep(1)
+                    page.go_back()
+                    time.sleep(1)
+                except Exception:
+                    try:
+                        page.go_back()
+                    except Exception:
+                        pass
+
+            result["saved_paths"] = saved_paths
+            if saved_paths:
+                result["message"] = f"Downloaded {len(saved_paths)} file(s) to {company_dir}"
+            else:
+                # No PDF links on first page: try to open document categories (user may need to complete flow manually)
+                try:
+                    cat_link = page.query_selector('a[href*="document-categories"], a:has-text("Annual"), a:has-text("Balance Sheet"), a:has-text("Document")')
+                    if cat_link:
+                        cat_link.click()
+                        time.sleep(3)
+                        page.screenshot(path=company_dir / "after_category.png")
+                        result["message"] = "Search OK; opened document section. Check data/mca/reports/ for screenshot; MCA may require login to download."
+                    else:
+                        result["message"] = "Search OK; no PDF links on this page. Check _debug/ for screenshot; you may need to select document category and year manually on MCA."
+                except Exception:
+                    result["message"] = "Search OK. Check _debug/ for screenshot; MCA may require login for document download."
+
             page.screenshot(path=debug_dir / f"{safe_cin}_after_search.png")
             with open(debug_dir / f"{safe_cin}_after_search.html", "w", encoding="utf-8") as f:
                 f.write(page.content())

@@ -1,52 +1,51 @@
-company_name,cin,sector,notes
-Titan Company Limited,L74999TZ1984PLC001456,Gems & Jewellery,Tata Group; listed; not wilful defaulter
-Kalyan Jewellers India Limited,L36911KL2009PLC024641,Gems & Jewellery,Listed; strong performer
-Senco Gold Limited,L36911WB1994PLC063674,Gems & Jewellery,Listed; jewellery retail
-TBZ - The Bride's Jeweller,L27205MH2007PLC167425,Gems & Jewellery,Listed; established
-Rajesh Exports Limited,L36911KA1990PLC020815,Gems & Jewellery,Listed; export-oriented
-Vaibhav Global Limited,L36911RJ1989PLC004945,Gems & Jewellery,Listed; export-oriented
-Cochin Shipyard Limited,L63032KL1972GOI002414,Shipbuilding,PSU; listed; not wilful defaulter
-Tata Steel Limited,L27100WB1907PLC001473,Steel & Metals,Tata Group; listed
-JSW Steel Limited,L27102MH1994PLC152925,Steel & Metals,Listed; large cap
-Steel Authority of India Limited,L27109DL1973GOI006454,Steel & Metals,PSU; listed
-Jindal Steel & Power Limited,L27105HR1979PLC009913,Steel & Metals,Listed
-Larsen & Toubro Limited,L99999MH1946PLC004768,Infrastructure,Listed; large cap; EPC
-NCC Limited,L72200TG1990PLC011146,Infrastructure,Listed; construction
-IRB Infrastructure Developers Limited,L65910MH1998PLC115967,Infrastructure,Listed; roads
-KEC International Limited,L45200MH2005PLC152061,Infrastructure,Listed; transmission EPC
-Kalpataru Projects International Limited,L45203GJ1981PLC103919,Infrastructure,Listed; EPC
-PNC Infratech Limited,L45201UP1999PLC024640,Infrastructure,Listed; roads
-Dilip Buildcon Limited,L45201MP1987PLC003821,Infrastructure,Listed; construction
-ITC Limited,L16005WB1910PLC001985,FMCG / Foods,Diversified; listed; not wilful defaulter
-Nestle India Limited,L15202DL1959PLC003786,FMCG / Foods,Listed; foods
-Britannia Industries Limited,L15412WB1918PLC002964,FMCG / Foods,Listed; biscuits
-Hindustan Unilever Limited,L15140MH1933PLC002030,FMCG / Foods,Listed; FMCG
-Dabur India Limited,L24230UP1975PLC003919,FMCG / Foods,Listed; FMCG
-Marico Limited,L15140MH1988PLC049208,FMCG / Foods,Listed; FMCG
-Trident Limited,L17119PB1990PLC010365,Textiles,Listed; textiles
-Welspun India Limited,L17119GJ1985PLC033347,Textiles,Listed; home textiles
-Raymond Limited,L17117MH1925PLC001208,Textiles,Listed; suiting
-Grasim Industries Limited,L17124MP1947PLC000410,Textiles,Diversified; cement + textiles; listed
-Sun Pharmaceutical Industries Limited,L24230GJ1993PLC019050,Pharma,Listed; large cap
-Dr Reddy's Laboratories Limited,L85195TG1984PLC004507,Pharma,Listed; large cap
-InterGlobe Aviation Limited,L62100DL2004PLC129768,Travel / Aviation,IndiGo; listed
-Indian Hotels Company Limited,L74999MH1902PLC000183,Travel / Hospitality,Tata Group; listed
-Lemon Tree Hotels Limited,L74899DL1992PLC049022,Travel / Hospitality,Listed
-UltraTech Cement Limited,L26940MH2000PLC128420,Cement,Aditya Birla; listed
-Oil and Natural Gas Corporation Limited,L74899DL1993GOI054155,Oil & Gas,PSU; listed
-Blue Dart Express Limited,L66000MH1991PLC062329,Logistics,Listed; express logistics
-DLF Limited,L70101DL1963PLC004462,Real Estate,Listed; large cap
-Bajaj Finance Limited,L65910MH1987PLC042961,NBFC / Leasing,Listed; consumer finance
-HT Media Limited,L22121DL2002PLC117874,Media,Listed; publishing
-ABB India Limited,L32202KA1949PLC032923,Engineering / Manufacturing,Listed; electrical equipment
-Siemens Limited,L28920MH1957PLC010839,Engineering / Manufacturing,Listed; industrial
-Bharat Heavy Electricals Limited,L74899DL1964GOI004281,Engineering / Manufacturing,PSU; listed
-Thermax Limited,L29299PN1980PLC022787,Engineering / Manufacturing,Listed; boilers
-Carborundum Universal Limited,L99999TN1954PLC000759,Engineering / Manufacturing,Listed; abrasives
-SKF India Limited,L29130MH1961PLC011980,Engineering / Manufacturing,Listed; bearings
-Timken India Limited,L29130KA1996PLC048230,Engineering / Manufacturing,Listed; bearings
-Schaeffler India Limited,L29130GJ1962PLC001167,Engineering / Manufacturing,Listed; auto components
-Coal India Limited,L23109WB1973GOI028844,Mining,PSU; listed
-Infosys Limited,L85110KA1981PLC013115,IT / Services,Listed; software export
-Tata Elxsi Limited,L85110KA1989PLC009968,IT / Services,Tata; listed; design/export
-
+company_name,cin,sector,amount_crore,notes
+Titan Company Limited,L74999TZ1984PLC001456,Gems & Jewellery,,Tata Group; listed; not wilful defaulter
+Kalyan Jewellers India Limited,L36911KL2009PLC024641,Gems & Jewellery,,Listed; strong performer
+Senco Gold Limited,L36911WB1994PLC063674,Gems & Jewellery,,Listed; jewellery retail
+TBZ - The Bride's Jeweller,L27205MH2007PLC167425,Gems & Jewellery,,Listed; established
+Rajesh Exports Limited,L36911KA1990PLC020815,Gems & Jewellery,,Listed; export-oriented
+Vaibhav Global Limited,L36911RJ1989PLC004945,Gems & Jewellery,,Listed; export-oriented
+Cochin Shipyard Limited,L63032KL1972GOI002414,Shipbuilding,,PSU; listed; not wilful defaulter
+Tata Steel Limited,L27100WB1907PLC001473,Steel & Metals,,Tata Group; listed
+JSW Steel Limited,L27102MH1994PLC152925,Steel & Metals,,Listed; large cap
+Steel Authority of India Limited,L27109DL1973GOI006454,Steel & Metals,,PSU; listed
+Jindal Steel & Power Limited,L27105HR1979PLC009913,Steel & Metals,,Listed
+Larsen & Toubro Limited,L99999MH1946PLC004768,Infrastructure,,Listed; large cap; EPC
+NCC Limited,L72200TG1990PLC011146,Infrastructure,,Listed; construction
+IRB Infrastructure Developers Limited,L65910MH1998PLC115967,Infrastructure,,Listed; roads
+KEC International Limited,L45200MH2005PLC152061,Infrastructure,,Listed; transmission EPC
+Kalpataru Projects International Limited,L45203GJ1981PLC103919,Infrastructure,,Listed; EPC
+PNC Infratech Limited,L45201UP1999PLC024640,Infrastructure,,Listed; roads
+Dilip Buildcon Limited,L45201MP1987PLC003821,Infrastructure,,Listed; construction
+ITC Limited,L16005WB1910PLC001985,FMCG / Foods,,Diversified; listed; not wilful defaulter
+Nestle India Limited,L15202DL1959PLC003786,FMCG / Foods,,Listed; foods
+Britannia Industries Limited,L15412WB1918PLC002964,FMCG / Foods,,Listed; biscuits
+Hindustan Unilever Limited,L15140MH1933PLC002030,FMCG / Foods,,Listed; FMCG
+Dabur India Limited,L24230UP1975PLC003919,FMCG / Foods,,Listed; FMCG
+Marico Limited,L15140MH1988PLC049208,FMCG / Foods,,Listed; FMCG
+Trident Limited,L17119PB1990PLC010365,Textiles,,Listed; textiles
+Welspun India Limited,L17119GJ1985PLC033347,Textiles,,Listed; home textiles
+Raymond Limited,L17117MH1925PLC001208,Textiles,,Listed; suiting
+Grasim Industries Limited,L17124MP1947PLC000410,Textiles,,Diversified; cement + textiles; listed
+Sun Pharmaceutical Industries Limited,L24230GJ1993PLC019050,Pharma,,Listed; large cap
+Dr Reddy's Laboratories Limited,L85195TG1984PLC004507,Pharma,,Listed; large cap
+InterGlobe Aviation Limited,L62100DL2004PLC129768,Travel / Aviation,,IndiGo; listed
+Indian Hotels Company Limited,L74999MH1902PLC000183,Travel / Hospitality,,Tata Group; listed
+Lemon Tree Hotels Limited,L74899DL1992PLC049022,Travel / Hospitality,,Listed
+UltraTech Cement Limited,L26940MH2000PLC128420,Cement,,Aditya Birla; listed
+Oil and Natural Gas Corporation Limited,L74899DL1993GOI054155,Oil & Gas,,PSU; listed
+Blue Dart Express Limited,L66000MH1991PLC062329,Logistics,,Listed; express logistics
+DLF Limited,L70101DL1963PLC004462,Real Estate,,Listed; large cap
+Bajaj Finance Limited,L65910MH1987PLC042961,NBFC / Leasing,,Listed; consumer finance
+HT Media Limited,L22121DL2002PLC117874,Media,,Listed; publishing
+ABB India Limited,L32202KA1949PLC032923,Engineering / Manufacturing,,Listed; electrical equipment
+Siemens Limited,L28920MH1957PLC010839,Engineering / Manufacturing,,Listed; industrial
+Bharat Heavy Electricals Limited,L74899DL1964GOI004281,Engineering / Manufacturing,,PSU; listed
+Thermax Limited,L29299PN1980PLC022787,Engineering / Manufacturing,,Listed; boilers
+Carborundum Universal Limited,L99999TN1954PLC000759,Engineering / Manufacturing,,Listed; abrasives
+SKF India Limited,L29130MH1961PLC011980,Engineering / Manufacturing,,Listed; bearings
+Timken India Limited,L29130KA1996PLC048230,Engineering / Manufacturing,,Listed; bearings
+Schaeffler India Limited,L29130GJ1962PLC001167,Engineering / Manufacturing,,Listed; auto components
+Coal India Limited,L23109WB1973GOI028844,Mining,,PSU; listed
+Infosys Limited,L85110KA1981PLC013115,IT / Services,,Listed; software export
+Tata Elxsi Limited,L85110KA1989PLC009968,IT / Services,,Tata; listed; design/export

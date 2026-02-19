@@ -72,6 +72,7 @@ python scripts/cibil_mca_pipeline.py run --input data/cibil/companies.csv --limi
 ## MCA portal notes
 
 - **View Public Documents**: search by Company Registration Number (CIN) and ROC.
+- **Viewing** is free; **downloading** costs **₹100 per company** (up to 5 docs, 3-hour window after payment). See **[MCA alternatives and workarounds](MCA_ALTERNATIVES_AND_WORKAROUNDS.md)** for free options (BSE/NSE for listed companies, Screener.in, etc.).
 - CAPTCHA is required on search; rate limits ~100–150 requests/hour per IP (script uses delays).
 - Document categories include “Annual Returns and Balance Sheet eForms” (Form AOC-4); document listing and download automation can be extended in `scripts/mca_fetcher.py`.
 
