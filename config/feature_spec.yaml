@@ -1,0 +1,574 @@
+# Fulcrum: Feature specification for wilful defaulter analysis
+# All features are defined so they can be computed or extracted consistently across all companies.
+# One row per company-year in the final feature table.
+# Units: amounts in Rs crore unless noted; ratios dimensionless; flags 0/1 or categorical.
+#
+# Data sources: Moneycontrol (P&L, Balance Sheet, Cash Flow) + Annual report PDF (auditor report,
+# notes, shareholding). Directors / governance features are out of scope.
+# Annual report PDFs: available via Moneycontrol company page (links to BSE/NSE or company PDF).
+
+---
+
+# --- PROFIT & LOSS (Income Statement) ---
+# Source: P&L sheet (Moneycontrol / annual report). Map line-item names to these standard names.
+
+profit_and_loss:
+  - id: revenue
+    name: Revenue (Total Income from operations)
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Revenue', 'Total Income', 'Income from operations' to this. Use standalone for comparability unless only consolidated available."
+  - id: pat
+    name: Profit after tax (Net profit)
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'PAT', 'Net Profit', 'Profit for the period' to this."
+  - id: interest_expense
+    name: Finance costs / Interest expense
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Finance costs', 'Interest expense', 'Interest' to this."
+  - id: depreciation
+    name: Depreciation and amortisation
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Depreciation', 'Depreciation and amortisation' to this."
+  - id: ebitda
+    name: EBITDA
+    type: numeric
+    unit: crore
+    derivation: "derived: PAT + interest_expense + tax_expense + depreciation; or raw line if reported."
+    comparability: "Prefer reported EBITDA; else compute from P&L line items."
+  - id: tax_expense
+    name: Tax expense (P&L)
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Tax expense', 'Income tax', 'Provision for tax' to this. For EBIT and ratios."
+
+# --- BALANCE SHEET ---
+# Source: Balance sheet (Moneycontrol / annual report).
+
+balance_sheet:
+  - id: total_equity
+    name: Total equity / Net worth
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Total Equity', 'Net Worth', 'Equity' (shareholders' funds) to this."
+  - id: total_borrowings
+    name: Total borrowings / Debt
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Borrowings', 'Total debt', 'Long-term + Short-term borrowings' to this."
+  - id: current_assets
+    name: Current assets
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Standard line item."
+  - id: current_liabilities
+    name: Current liabilities
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Standard line item."
+  - id: total_assets
+    name: Total assets
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Standard line item."
+  - id: cash_and_equivalents
+    name: Cash and cash equivalents
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Cash', 'Cash and bank', 'Cash and cash equivalents' to this."
+  - id: inventory
+    name: Inventory
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Inventories', 'Inventory' to this. For quick ratio."
+  - id: receivables
+    name: Trade receivables / Accounts receivable
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Trade receivables', 'Accounts receivable', 'Sundry debtors' to this. For receivables turnover."
+  - id: retained_earnings
+    name: Retained earnings / Reserves
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Retained earnings', 'Reserves and surplus' (or component). For Altman Z."
+
+# --- CASH FLOW STATEMENT ---
+# Source: Cash flow statement (Moneycontrol / annual report). Map to standard headings.
+
+cash_flow:
+  - id: cfo
+    name: Cash flow from operating activities
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Cash from operations', 'Net cash from operating activities' to this."
+  - id: cfi
+    name: Cash flow from investing activities
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Net cash from investing activities' to this. Often negative (capex)."
+  - id: cff
+    name: Cash flow from financing activities
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Net cash from financing activities' to this."
+  - id: net_cash_change
+    name: Net change in cash and equivalents
+    type: numeric
+    unit: crore
+    derivation: raw_line
+    comparability: "Map 'Net increase/decrease in cash', 'Net change in cash' to this."
+  - id: capex
+    name: Capital expenditure (from investing CF)
+    type: numeric
+    unit: crore
+    derivation: "From CFI: 'Purchase of fixed assets' or net CFI; or BS change in fixed assets. For FCF."
+    comparability: "Use same definition. Often negative; use absolute for FCF = CFO - |capex|."
+
+# --- LIQUIDITY RATIOS ---
+liquidity_ratios:
+  - id: current_ratio
+    name: Current ratio
+    type: numeric
+    unit: ratio
+    derivation: "current_assets / current_liabilities"
+    comparability: "Same formula for all."
+  - id: quick_ratio
+    name: Quick ratio
+    type: numeric
+    unit: ratio
+    derivation: "(current_assets - inventory) / current_liabilities"
+    comparability: "Same formula for all."
+  - id: cash_ratio
+    name: Cash ratio
+    type: numeric
+    unit: ratio
+    derivation: "cash_and_equivalents / current_liabilities"
+    comparability: "Same formula for all."
+
+# --- LEVERAGE RATIOS ---
+leverage_ratios:
+  - id: debt_to_equity
+    name: Debt / Equity
+    type: numeric
+    unit: ratio
+    derivation: "total_borrowings / total_equity (if total_equity <= 0, treat as missing or cap)"
+    comparability: "Same formula for all."
+  - id: interest_coverage
+    name: Interest coverage
+    type: numeric
+    unit: ratio
+    derivation: "EBIT / interest_expense; EBIT = PAT + interest_expense + tax_expense (or use reported EBIT)"
+    comparability: "Same formula. Low or negative = red flag."
+  - id: debt_service_coverage
+    name: Debt service coverage
+    type: numeric
+    unit: ratio
+    derivation: "cfo / (interest_expense + principal_repayment); principal from CFF or use interest only as proxy"
+    comparability: "Same definition. Use interest only if principal not available."
+
+# --- PROFITABILITY RATIOS ---
+profitability_ratios:
+  - id: net_profit_margin
+    name: Net profit margin
+    type: numeric
+    unit: ratio
+    derivation: "PAT / revenue"
+    comparability: "Same formula for all."
+  - id: roa
+    name: Return on assets (ROA)
+    type: numeric
+    unit: ratio
+    derivation: "PAT / total_assets (use average assets if available)"
+    comparability: "Same formula for all."
+  - id: roe
+    name: Return on equity (ROE)
+    type: numeric
+    unit: ratio
+    derivation: "PAT / total_equity (use average equity if available, else period-end)"
+    comparability: "Same formula for all."
+
+# --- EFFICIENCY RATIOS ---
+efficiency_ratios:
+  - id: asset_turnover
+    name: Asset turnover
+    type: numeric
+    unit: ratio
+    derivation: "revenue / total_assets"
+    comparability: "Same formula for all."
+  - id: receivables_turnover
+    name: Receivables turnover
+    type: numeric
+    unit: ratio
+    derivation: "revenue / receivables (if receivables <= 0, treat as missing)"
+    comparability: "Same formula for all."
+
+# --- CASH FLOW METRICS ---
+cash_flow_metrics:
+  - id: cfo_absolute
+    name: Operating cash flow (absolute)
+    type: numeric
+    unit: crore
+    derivation: "Same as cfo (raw). Included for clarity."
+    comparability: "From cash flow statement."
+  - id: cfo_pct_revenue
+    name: Operating cash flow as % of revenue
+    type: numeric
+    unit: percent
+    derivation: "cfo / revenue * 100"
+    comparability: "Same formula for all."
+  - id: free_cash_flow
+    name: Free cash flow
+    type: numeric
+    unit: crore
+    derivation: "cfo - |capex| (capex from CFI; use absolute for subtraction)"
+    comparability: "Same formula for all."
+  - id: cash_flow_to_debt
+    name: Cash flow to debt
+    type: numeric
+    unit: ratio
+    derivation: "cfo / total_borrowings (if borrowings = 0, treat as missing)"
+    comparability: "Same formula for all."
+  - id: cfo_to_pat
+    name: CFO / PAT (cash earnings quality)
+    type: numeric
+    unit: ratio
+    derivation: "cfo / pat; if PAT <= 0, treat as missing or flag"
+    comparability: "Same formula. < 1 or negative PAT with positive CFO: interpret with care."
+
+# --- GROWTH ---
+growth:
+  - id: revenue_growth_pct
+    name: Revenue growth (YoY %)
+    type: numeric
+    unit: percent
+    derivation: "(revenue_t - revenue_t_minus_1) / revenue_t_minus_1 * 100; requires same company prior year"
+    comparability: "Same formula. Compute per company-year using prior year revenue."
+
+# --- TEMPORAL FEATURES (per base ratio: YoY change 1y, 2y, 3y slope, 3y volatility) ---
+# Base ratios: debt_to_equity, interest_coverage, current_ratio, roe, net_profit_margin, cfo_to_pat, revenue_growth_pct
+# Requires 3 years of data per company.
+temporal:
+  - id: debt_to_equity_yoy_1y
+    name: Debt/Equity YoY change (t vs t-1)
+    type: numeric
+    derivation: "(debt_to_equity_t - debt_to_equity_t_minus_1) / debt_to_equity_t_minus_1 * 100 or absolute diff"
+    comparability: "Same for all. Null if prior year missing."
+  - id: debt_to_equity_yoy_2y
+    name: Debt/Equity YoY change (t-1 vs t-2)
+    type: numeric
+    derivation: "Same as above for t-1 vs t-2"
+    comparability: "Null if t-2 missing."
+  - id: debt_to_equity_trend_3y
+    name: Debt/Equity 3-year linear trend slope
+    type: numeric
+    derivation: "Linear regression slope of debt_to_equity over 3 years"
+    comparability: "Same for all. Null if < 3 years."
+  - id: debt_to_equity_volatility_3y
+    name: Debt/Equity 3-year standard deviation
+    type: numeric
+    derivation: "Std dev of debt_to_equity over 3 years"
+    comparability: "Same for all. Null if < 3 years."
+  - id: interest_coverage_yoy_1y
+    name: Interest coverage YoY change (t vs t-1)
+    type: numeric
+    derivation: "Percent or absolute change YoY"
+    comparability: "Null if prior year missing."
+  - id: interest_coverage_yoy_2y
+    name: Interest coverage YoY change (t-1 vs t-2)
+    type: numeric
+    derivation: "Same for t-1 vs t-2"
+    comparability: "Null if t-2 missing."
+  - id: interest_coverage_trend_3y
+    name: Interest coverage 3-year trend slope
+    type: numeric
+    derivation: "Slope over 3 years"
+    comparability: "Null if < 3 years."
+  - id: interest_coverage_volatility_3y
+    name: Interest coverage 3-year volatility
+    type: numeric
+    derivation: "Std dev over 3 years"
+    comparability: "Null if < 3 years."
+  - id: current_ratio_yoy_1y
+    name: Current ratio YoY change (t vs t-1)
+    type: numeric
+    derivation: "Percent or absolute change YoY"
+    comparability: "Null if prior year missing."
+  - id: current_ratio_yoy_2y
+    name: Current ratio YoY change (t-1 vs t-2)
+    type: numeric
+    derivation: "Same for t-1 vs t-2"
+    comparability: "Null if t-2 missing."
+  - id: current_ratio_trend_3y
+    name: Current ratio 3-year trend slope
+    type: numeric
+    derivation: "Slope over 3 years"
+    comparability: "Null if < 3 years."
+  - id: current_ratio_volatility_3y
+    name: Current ratio 3-year volatility
+    type: numeric
+    derivation: "Std dev over 3 years"
+    comparability: "Null if < 3 years."
+  - id: roe_yoy_1y
+    name: ROE YoY change (t vs t-1)
+    type: numeric
+    derivation: "Percent or absolute change YoY"
+    comparability: "Null if prior year missing."
+  - id: roe_yoy_2y
+    name: ROE YoY change (t-1 vs t-2)
+    type: numeric
+    derivation: "Same for t-1 vs t-2"
+    comparability: "Null if t-2 missing."
+  - id: roe_trend_3y
+    name: ROE 3-year trend slope
+    type: numeric
+    derivation: "Slope over 3 years"
+    comparability: "Null if < 3 years."
+  - id: roe_volatility_3y
+    name: ROE 3-year volatility
+    type: numeric
+    derivation: "Std dev over 3 years"
+    comparability: "Null if < 3 years."
+  - id: net_profit_margin_yoy_1y
+    name: Net profit margin YoY change (t vs t-1)
+    type: numeric
+    derivation: "Percent or absolute change YoY"
+    comparability: "Null if prior year missing."
+  - id: net_profit_margin_yoy_2y
+    name: Net profit margin YoY change (t-1 vs t-2)
+    type: numeric
+    derivation: "Same for t-1 vs t-2"
+    comparability: "Null if t-2 missing."
+  - id: net_profit_margin_trend_3y
+    name: Net profit margin 3-year trend slope
+    type: numeric
+    derivation: "Slope over 3 years"
+    comparability: "Null if < 3 years."
+  - id: net_profit_margin_volatility_3y
+    name: Net profit margin 3-year volatility
+    type: numeric
+    derivation: "Std dev over 3 years"
+    comparability: "Null if < 3 years."
+  - id: cfo_to_pat_yoy_1y
+    name: CFO/PAT YoY change (t vs t-1)
+    type: numeric
+    derivation: "Percent or absolute change YoY"
+    comparability: "Null if prior year missing."
+  - id: cfo_to_pat_yoy_2y
+    name: CFO/PAT YoY change (t-1 vs t-2)
+    type: numeric
+    derivation: "Same for t-1 vs t-2"
+    comparability: "Null if t-2 missing."
+  - id: cfo_to_pat_trend_3y
+    name: CFO/PAT 3-year trend slope
+    type: numeric
+    derivation: "Slope over 3 years"
+    comparability: "Null if < 3 years."
+  - id: cfo_to_pat_volatility_3y
+    name: CFO/PAT 3-year volatility
+    type: numeric
+    derivation: "Std dev over 3 years"
+    comparability: "Null if < 3 years."
+  - id: revenue_growth_pct_yoy_1y
+    name: Revenue growth % YoY change (t vs t-1)
+    type: numeric
+    derivation: "Change in revenue_growth_pct YoY"
+    comparability: "Null if prior year missing."
+  - id: revenue_growth_pct_yoy_2y
+    name: Revenue growth % YoY change (t-1 vs t-2)
+    type: numeric
+    derivation: "Same for t-1 vs t-2"
+    comparability: "Null if t-2 missing."
+  - id: revenue_growth_pct_trend_3y
+    name: Revenue growth % 3-year trend slope
+    type: numeric
+    derivation: "Slope over 3 years"
+    comparability: "Null if < 3 years."
+  - id: revenue_growth_pct_volatility_3y
+    name: Revenue growth % 3-year volatility
+    type: numeric
+    derivation: "Std dev over 3 years"
+    comparability: "Null if < 3 years."
+
+# --- AUDITOR'S REPORT (extracted flags) ---
+# Source: Full text of auditor's report (annual report PDF). Extract once per company-year.
+
+auditor_report:
+  - id: opinion_type
+    name: Auditor opinion type
+    type: categorical
+    values: ["unqualified", "qualified", "adverse", "disclaimer"]
+    derivation: "Parse report: 'Unqualified' / 'Qualified' / 'Adverse' / 'Disclaimer of opinion'"
+    comparability: "Exactly one value per company-year. qualified/adverse/disclaimer = red flag."
+  - id: going_concern_uncertainty
+    name: Material uncertainty related to going concern
+    type: binary
+    unit: 0_or_1
+    derivation: "1 if report states material uncertainty about going concern; else 0"
+    comparability: "Same rule for all. 1 = strong red flag."
+  - id: emphasis_of_matter
+    name: Emphasis of matter paragraph present
+    type: binary
+    unit: 0_or_1
+    derivation: "1 if 'Emphasis of Matter' (or equivalent) paragraph present; else 0"
+    comparability: "Same rule for all."
+  - id: fraud_reported
+    name: Fraud or regulatory reporting of fraud mentioned
+    type: binary
+    unit: 0_or_1
+    derivation: "1 if auditor reports fraud or reporting to regulators; else 0"
+    comparability: "Same rule for all. 1 = strong red flag."
+  - id: auditor_changed
+    name: Auditor changed (vs prior year)
+    type: binary
+    unit: 0_or_1
+    derivation: "1 if auditor name/firm differs from prior year; else 0. Compare from auditor's report."
+    comparability: "Same rule. 1 = possible red flag. Null for first year of data."
+
+# --- NOTES TO ACCOUNTS (when available) ---
+# Source: Notes in annual report. Extract amounts or flags; may not be on Moneycontrol.
+
+notes:
+  - id: related_party_transactions_amount
+    name: Related party transactions (total or key amount)
+    type: numeric
+    unit: crore
+    derivation: "Sum or key figure from 'Related Party Transactions' note; else null if not available"
+    comparability: "Use same definition (e.g. total RPT as per note). Missing = leave null."
+  - id: contingent_liabilities_amount
+    name: Contingent liabilities (total)
+    type: numeric
+    unit: crore
+    derivation: "Total from 'Contingent Liabilities' note; else null"
+    comparability: "Use same definition. Missing = leave null."
+  - id: related_party_flag
+    name: Related party transactions present (binary)
+    type: binary
+    unit: 0_or_1
+    derivation: "1 if RPT note exists and has non-zero/material amounts; else 0"
+    comparability: "Same rule when note is available; else null."
+  - id: rpt_count
+    name: Number of related party transactions (if disclosed)
+    type: numeric
+    unit: count
+    derivation: "Count of RPTs from note; else null"
+    comparability: "Same definition. Missing = null."
+  - id: rpt_to_revenue_ratio
+    name: Related party transactions / Revenue
+    type: numeric
+    unit: ratio
+    derivation: "related_party_transactions_amount / revenue; null if either missing"
+    comparability: "Same formula. High = diversion risk."
+  - id: contingent_to_networth_ratio
+    name: Contingent liabilities / Net worth
+    type: numeric
+    unit: ratio
+    derivation: "contingent_liabilities_amount / total_equity; null if either missing"
+    comparability: "Same formula. High = risk."
+  - id: pending_legal_cases_count
+    name: Pending legal cases (count, if disclosed)
+    type: numeric
+    unit: count
+    derivation: "From contingent liabilities or litigation note; else null"
+    comparability: "Same definition. Missing = null."
+
+# --- SHAREHOLDING (from annual report) ---
+shareholding:
+  - id: promoter_holding_pct
+    name: Promoter shareholding %
+    type: numeric
+    unit: percent
+    derivation: "From shareholding pattern in annual report (or Moneycontrol if available)"
+    comparability: "Same source. Missing = null."
+  - id: promoter_holding_change_yoy
+    name: Promoter shareholding change (YoY % points)
+    type: numeric
+    unit: percent_points
+    derivation: "promoter_holding_pct_t - promoter_holding_pct_t_minus_1; null if prior year missing"
+    comparability: "Declining = warning. Null for first year."
+
+# --- COMPANY (from CIN / master) ---
+company:
+  - id: company_age_years
+    name: Company age (years since incorporation)
+    type: numeric
+    unit: years
+    derivation: "financial_year - incorporation_year; incorporation year from CIN (chars 7-10) or MCA"
+    comparability: "Same formula. CIN format: 4-digit year at position 7-10."
+
+# --- COMPOSITE SCORES ---
+composite_scores:
+  - id: altman_z_score
+    name: Altman Z-Score (bankruptcy prediction)
+    type: numeric
+    unit: score
+    derivation: "Standard Altman Z: 1.2*A + 1.4*B + 3.3*C + 0.6*D + 1.0*E; A=working capital/TA, B=retained earnings/TA, C=EBIT/TA, D=market cap/total liabilities (or book equity), E=revenue/TA. Use book equity if market cap not available."
+    comparability: "Same formula. < 1.8 = distress zone."
+  - id: beneish_m_score
+    name: Beneish M-Score (earnings manipulation)
+    type: numeric
+    unit: score
+    derivation: "Beneish 8-variable model from DSRI, GMI, AQI, SGI, DEPI, SGAI, TATA, LVGI (from P&L, BS, CF). > -2.22 = possible manipulation."
+    comparability: "Same formula for all."
+
+# --- METADATA (for joining and filtering; not model features) ---
+# Not features for modelling but required for the feature table.
+
+metadata:
+  - id: company_name
+    name: Company name
+    type: string
+    derivation: "From cohort CSV"
+  - id: cin
+    name: CIN
+    type: string
+    derivation: "From cohort CSV"
+  - id: financial_year
+    name: Financial year (year ending March)
+    type: integer
+    derivation: "e.g. 2017 for FY2016-17"
+  - id: cohort
+    name: Defaulter vs non-defaulter
+    type: categorical
+    values: ["defaulter", "non_defaulter"]
+    derivation: "From which CSV the company came"
+
+# --- TOTAL FEATURE COUNT ---
+# profit_and_loss: 6
+# balance_sheet: 10
+# cash_flow: 5
+# liquidity_ratios: 3
+# leverage_ratios: 3
+# profitability_ratios: 3
+# efficiency_ratios: 2
+# cash_flow_metrics: 5
+# growth: 1
+# temporal: 28 (7 base ratios x 4 each: yoy_1y, yoy_2y, trend_3y, volatility_3y)
+# auditor_report: 5
+# notes: 7
+# shareholding: 2
+# company: 1
+# composite_scores: 2
+# metadata: 4 (not model features; for join/filter)
+# ---
+# Total model features (excl. metadata): 81
+# Total columns in feature table (incl. metadata): 85

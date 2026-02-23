@@ -126,6 +126,43 @@ Instead of predicting future defaults (which requires real-time data), Fulcrum p
 
 **Use Case**: Context on company distress, management changes, sector challenges
 
+#### 5. Feature Data: Moneycontrol + Annual Report (Current Approach)
+
+Features for the model are built from two sources. All companies in the cohort are listed (BSE/NSE), so both sources are available.
+
+| Source | What you get |
+|--------|----------------|
+| **Moneycontrol** | P&L, Balance Sheet, Cash Flow (all line items). Use for: revenue, PAT, interest, tax, depreciation, EBITDA, total equity, borrowings, current assets/liabilities, total assets, cash, inventory, receivables, retained earnings, CFO, CFI, CFF, net cash change, capex. All liquidity/leverage/profitability/efficiency/cash-flow ratios, growth, temporal features (YoY, trend, volatility), and composite scores (Altman Z, Beneish M) are **derived** from these. |
+| **Annual report PDF** | Auditor's report (full text), Notes to accounts (RPT, contingent liabilities, legal), Shareholding pattern (promoter %). Annual report PDFs are available via **Moneycontrol** company page → Company Info / Financials → "Annual Report" link (BSE/NSE or company PDF). |
+| **CIN** (already in cohort CSV) | Company age (incorporation year from CIN). No extra download. |
+
+**Features that must be taken from the annual report only (not on Moneycontrol):**
+
+| # | Feature ID | Where in annual report |
+|---|------------|-------------------------|
+| 1 | opinion_type | Auditor's Report – opinion paragraph |
+| 2 | going_concern_uncertainty | Auditor's Report – material uncertainty / going concern |
+| 3 | emphasis_of_matter | Auditor's Report – Emphasis of Matter paragraph |
+| 4 | fraud_reported | Auditor's Report – fraud / reporting to regulators |
+| 5 | auditor_changed | Auditor's Report – auditor name/firm (compare with prior year) |
+| 6 | related_party_transactions_amount | Notes – Related Party Transactions |
+| 7 | contingent_liabilities_amount | Notes – Contingent Liabilities |
+| 8 | related_party_flag | Notes – Related Party Transactions (present = 1) |
+| 9 | rpt_count | Notes – Related Party Transactions (count if disclosed) |
+| 10 | pending_legal_cases_count | Notes – Contingent Liabilities / Litigation |
+| 11 | promoter_holding_pct | Shareholding pattern |
+| 12 | promoter_holding_change_yoy | Shareholding pattern (current + prior year) |
+
+**Derived using annual report + Moneycontrol:** `rpt_to_revenue_ratio` = (RPT amount from annual report) / (revenue from Moneycontrol); `contingent_to_networth_ratio` = (contingent amount from annual report) / (total_equity from Moneycontrol).
+
+**Caveats:**
+- Prefer **standalone** financials on Moneycontrol when available (for comparability); use consolidated if standalone is missing.
+- **Capex:** If Moneycontrol doesn't break out "Purchase of fixed assets" in CFI, take from annual report Cash Flow or derive from BS fixed-asset movement.
+- **pending_legal_cases_count** and **rpt_count:** Not always a single number; count from litigation/RPT table if needed; leave null if not disclosed.
+- **debt_service_coverage:** Principal repayment often not a single line; use **interest only** as proxy (CFO / interest_expense) if needed.
+
+**Feature specification:** Full list of features (81 model features, 85 total columns including metadata), with derivation and comparability, is in **`config/feature_spec.yaml`**.
+
 ---
 
 ## Technical Architecture
@@ -199,7 +236,9 @@ Instead of predicting future defaults (which requires real-time data), Fulcrum p
 
 ### Phase 3: Feature Engineering
 
-**Goal**: Transform raw financial data into meaningful predictive features
+**Goal**: Transform raw financial data into meaningful predictive features.
+
+**Canonical feature list:** See **`config/feature_spec.yaml`** for the full spec (81 model features, 85 columns). Data comes from **Moneycontrol** (P&L, BS, CF) and **annual report PDF** (auditor report, notes, shareholding). Directors, filing-delay, and charge-based features are out of scope. See "Feature Data: Moneycontrol + Annual Report" under Data Sources above.
 
 #### 3.1 Financial Health Indicators (40 features)
 

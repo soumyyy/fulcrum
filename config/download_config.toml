@@ -1,0 +1,64 @@
+[general]
+# Number of financial years to collect per company.
+lookback_years = 3
+
+# Used when anchor year cannot be derived from company rows.
+default_anchor_fy = 2023
+
+# "desc" => newest to oldest (T-1, T-2, T-3), "asc" => oldest to newest.
+year_order = "desc"
+
+[defaulters]
+# Options:
+# - "fy_before_default_or_default_minus_one"
+# - "column"
+# - "fixed_year"
+anchor_mode = "fy_before_default_or_default_minus_one"
+fy_before_default_column = "fy_before_default"
+default_year_column = "default_year"
+default_year_offset = -1
+anchor_column = "anchor_fy"
+fixed_anchor_fy = 2023
+
+[non_defaulters]
+# Options:
+# - "sector_median_from_defaulters"
+# - "global_median_from_defaulters"
+# - "column"
+# - "fixed_year"
+anchor_mode = "sector_median_from_defaulters"
+anchor_column = "anchor_fy"
+fixed_anchor_fy = 2023
+
+[non_defaulters.sector_aliases]
+"FMCG / Foods" = "FMCG / Foods / Agro"
+"Travel / Hospitality" = "Travel / Aviation / Hospitality"
+"Travel / Aviation" = "Travel / Aviation / Hospitality"
+"IT / Services" = "IT / Services / Export"
+"Oil & Gas" = "Oil & Gas / Energy"
+
+[sources]
+# Heuristic: CIN starting with these prefixes is treated as listed/public.
+listed_cin_prefixes = ["L"]
+
+# Priority order used by the downloader.
+priority_listed = ["bse", "nse", "mca"]
+priority_unlisted = ["mca"]
+
+[documents]
+# Must-have financial files.
+required = [
+  "annual_report",
+  "balance_sheet",
+  "profit_and_loss",
+  "cash_flow",
+  "auditor_report",
+  "notes_to_accounts",
+]
+
+# Useful extras for governance/forensics.
+optional = [
+  "director_report",
+  "related_party_transactions",
+  "charges",
+]
