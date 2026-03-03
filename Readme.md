@@ -163,6 +163,8 @@ Features for the model are built from two sources. All companies in the cohort a
 
 **Feature specification:** Full list of features (81 model features, 85 total columns including metadata), with derivation and comparability, is in **`config/feature_spec.yaml`**.
 
+**Manual data collection:** To start with one company and one year (e.g. from `wilful_defaulters_50.csv` or `non_defaulters_50.csv`), use the template **`data/processed/manual_feature_input_template.csv`** and follow **`data/processed/MANUAL_COLLECTION.md`** for step-by-step instructions (Moneycontrol + annual report PDF).
+
 ---
 
 ## Technical Architecture
