@@ -1,0 +1,76 @@
+version: "v1"
+framing_message: "This score estimates how closely the company's financial pattern resembles historical wilful defaulter cases in the training dataset."
+
+critical_rules:
+  - name: weak_interest_coverage
+    feature: interest_coverage
+    operator: lt
+    threshold: 1.0
+    reason: "Interest coverage is below 1, suggesting operating earnings may not comfortably cover finance costs."
+  - name: excessive_leverage
+    feature: debt_to_equity
+    operator: gt
+    threshold: 2.0
+    reason: "Debt-to-equity is above 2, indicating elevated leverage."
+  - name: weak_liquidity
+    feature: current_ratio
+    operator: lt
+    threshold: 1.0
+    reason: "Current ratio is below 1, indicating a short-term liquidity deficit."
+  - name: negative_operating_cash_flow
+    expression:
+      all:
+        - feature: cfo
+          operator: lt
+          threshold: 0
+        - feature: revenue
+          operator: gt
+          threshold: 0
+    reason: "Operating cash flow is negative despite positive revenue."
+  - name: negative_profit_margin
+    feature: net_profit_margin
+    operator: lt
+    threshold: 0
+    reason: "Net profit margin is negative."
+  - name: qualified_audit_signal
+    feature: auditor_qualification_flag
+    operator: eq
+    threshold: 1
+    reason: "A qualified, adverse, or disclaimer audit opinion was detected."
+  - name: going_concern_warning
+    feature: going_concern_uncertainty_flag
+    operator: eq
+    threshold: 1
+    reason: "A going concern warning was detected."
+  - name: large_contingent_liabilities
+    feature: contingent_to_networth_ratio
+    operator: gt
+    threshold: 0.5
+    reason: "Contingent liabilities exceed 50% of net worth."
+
+trend_rules:
+  - name: declining_revenue_trend
+    feature: revenue_trend_3y
+    operator: lt
+    threshold: 0
+    reason: "Revenue trend over the available years is negative."
+  - name: declining_cash_flow_trend
+    feature: cfo_trend_3y
+    operator: lt
+    threshold: 0
+    reason: "Operating cash flow trend over the available years is negative."
+  - name: rising_borrowings_trend
+    feature: total_borrowings_trend_3y
+    operator: gt
+    threshold: 0
+    reason: "Borrowings trend over the available years is increasing."
+  - name: leverage_spike
+    feature: debt_to_equity_yoy
+    operator: gt
+    threshold: 0.25
+    reason: "Debt-to-equity increased materially year over year."
+  - name: margin_drop
+    feature: net_profit_margin_yoy
+    operator: lt
+    threshold: -0.05
+    reason: "Net profit margin deteriorated materially year over year."

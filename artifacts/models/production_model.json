@@ -1,0 +1,13 @@
+{
+  "model_path": "/Users/dhruvpithadia/Desktop/NMIMS/Sem8/Capstone/fulcrum/artifacts/models/logistic_regression.joblib",
+  "threshold_path": "/Users/dhruvpithadia/Desktop/NMIMS/Sem8/Capstone/fulcrum/artifacts/models/logistic_regression_threshold.json",
+  "features_path": "/Users/dhruvpithadia/Desktop/NMIMS/Sem8/Capstone/fulcrum/artifacts/models/logistic_regression_features.json",
+  "model_version": "v1",
+  "dataset_sha256": "fcdf9741fb9c14a65e44dad23efd249f5c7570598f8549267e876584fe4f9078",
+  "feature_list_version": "v1",
+  "threshold_version": "v1",
+  "params": {
+    "C": 10.0
+  },
+  "model_name": "logistic_regression"
+}

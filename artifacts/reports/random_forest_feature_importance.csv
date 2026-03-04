@@ -1,0 +1,83 @@
+feature,importance
+num__debt_to_assets,0.0875467493301911
+num__tax_expense,0.08043830724307131
+num__interest_coverage,0.07151702459954187
+num__net_profit_margin,0.06692689236917014
+num__roa,0.06331605980988839
+num__debt_to_equity,0.061093551516873
+num__pat,0.05924321130036843
+num__altman_z_proxy,0.05733063108569786
+num__net_profit_margin_trend_3y,0.04943380003176712
+num__revenue_trend_3y,0.04233679065476806
+num__cash_flow_to_debt,0.030310254111002334
+num__roa_trend_3y,0.029739613162631285
+num__net_profit_margin_volatility_3y,0.024747910703764715
+num__debt_to_equity_trend_3y,0.02124064608151716
+num__pat_trend_3y,0.020311191982185187
+num__capex_effective,0.019269415004149547
+num__roa_volatility_3y,0.018700342281222603
+num__pat_volatility_3y,0.016175415498029748
+num__revenue,0.014434971394581988
+num__cfo_margin,0.014104614816112651
+num__depreciation,0.012656760652245585
+num__revenue_volatility_3y,0.012331502643273937
+num__cfi,0.011861871693134053
+num__cfo_volatility_3y,0.009761320989139016
+num__free_cash_flow,0.009052556189488201
+num__interest_expense,0.00850228616908929
+num__cfo,0.008492513995260841
+num__asset_turnover,0.007852372353986267
+num__incorporation_year,0.007461655700828168
+num__cff,0.007215706205330383
+num__cfo_trend_3y,0.006752700587773857
+num__pat_yoy,0.006712027150604365
+num__net_profit_margin_yoy,0.004665155296594437
+num__net_cash_change,0.004582963095494484
+num__revenue_yoy,0.004460734183983769
+num__ebitda_yoy,0.0041276197934682355
+cat__sector_FMCG / Foods / Agro,0.004104902119672623
+num__roa_yoy,0.003605571377237364
+num__cfo_yoy,0.0032462099337998884
+cat__sector_Textiles,0.0019445687565667127
+cat__sector_Travel / Hospitality,0.001415512550546173
+cat__sector_Gems & Jewellery,0.0011579130477514725
+num__total_borrowings_yoy,0.0010839240845496056
+num__relative_year_from_latest,0.0010342876193073724
+num__quick_ratio,0.0009937113903874279
+num__current_ratio,0.0007493385955014103
+cat__sector_FMCG / Foods,0.0007222391171330266
+num__current_ratio_volatility_3y,0.0007104429022597022
+num__promoter_holding_pct_missing,0.0006495630951665504
+num__receivables,0.0005868629906000239
+num__current_assets,0.0005847888182098835
+num__current_liabilities_to_assets,0.0005270715699634555
+num__contingent_liability_unknown,0.0004972777828729599
+num__cash_ratio,0.0004798243660677069
+cat__sector_Real Estate,0.0004462849091285343
+cat__sector_Engineering / Manufacturing,0.0002920522038814337
+cat__sector_Infrastructure,0.000223725799765832
+num__receivables_turnover,0.00014522753944451689
+num__current_ratio_trend_3y,7.618876500776143e-05
+num__is_latest_observation,1.537098894916708e-05
+cat__sector_Oil & Gas,0.0
+cat__sector_Oil & Gas / Energy,0.0
+cat__sector_Pharma,0.0
+num__opinion_present_flag,0.0
+cat__sector_Shipbuilding,0.0
+cat__sector_Steel & Metals,0.0
+cat__sector_Mining,0.0
+cat__sector_Travel / Aviation,0.0
+cat__sector_Travel / Aviation / Hospitality,0.0
+cat__sector_NBFC / Leasing,0.0
+num__current_ratio_yoy,0.0
+cat__sector_Media,0.0
+cat__sector_Logistics,0.0
+cat__sector_IT / Services,0.0
+num__contingent_to_networth_ratio,0.0
+num__cash_and_equivalents,0.0
+num__emphasis_of_matter_flag,0.0
+num__inventory,0.0
+num__working_capital,0.0
+num__going_concern_uncertainty_unknown,0.0
+num__auditor_name_present_flag,0.0
+cat__sector_Cement,0.0

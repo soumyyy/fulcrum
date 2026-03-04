@@ -208,6 +208,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["company_age"] = out["financial_year"] - out["incorporation_year"]
 
     out["ebit"] = out["pat"] + out["interest_expense"] + out["tax_expense"]
+    out["ebitda"] = out["ebitda"].fillna(out["ebit"] + out["depreciation"])
     out["working_capital"] = out["current_assets"] - out["current_liabilities"]
     out["total_liabilities_proxy"] = out["total_assets"] - out["total_equity"]
 
@@ -251,13 +252,21 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["opinion_present_flag"] = normalized_text(out["opinion_type"]).ne("").astype(int)
     out["auditor_name_present_flag"] = normalized_text(out["auditor_name"]).ne("").astype(int)
 
-    out["going_concern_uncertainty_flag"] = out["going_concern_uncertainty"].fillna(0).astype(int)
-    out["emphasis_of_matter_flag"] = out["emphasis_of_matter"].fillna(0).astype(int)
-    out["fraud_reported_flag"] = out["fraud_reported"].fillna(0).astype(int)
+    out["going_concern_uncertainty_unknown"] = out["going_concern_uncertainty"].isna().astype(int)
+    out["emphasis_of_matter_unknown"] = out["emphasis_of_matter"].isna().astype(int)
+    out["fraud_reported_unknown"] = out["fraud_reported"].isna().astype(int)
+    out["going_concern_uncertainty_flag"] = out["going_concern_uncertainty"].fillna(0).gt(0).astype(int)
+    out["emphasis_of_matter_flag"] = out["emphasis_of_matter"].fillna(0).gt(0).astype(int)
+    out["fraud_reported_flag"] = out["fraud_reported"].fillna(0).gt(0).astype(int)
+    out["related_party_unknown"] = (
+        out["related_party_transactions_amount"].isna()
+        & out["rpt_count"].isna()
+    ).astype(int)
     out["related_party_flag"] = (
         out["related_party_transactions_amount"].fillna(0).gt(0)
         | out["rpt_count"].fillna(0).gt(0)
     ).astype(int)
+    out["contingent_liability_unknown"] = out["contingent_liabilities_amount"].isna().astype(int)
     out["contingent_liability_flag"] = out["contingent_liabilities_amount"].fillna(0).gt(0).astype(int)
 
     for col in [

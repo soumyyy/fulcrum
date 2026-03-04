@@ -3,3 +3,10 @@ pandas
 camelot-py[cv]
 pdfplumber
 playwright
+numpy
+scikit-learn
+joblib
+pyyaml
+fastapi
+uvicorn
+python-multipart

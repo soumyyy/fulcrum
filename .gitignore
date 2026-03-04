@@ -1,3 +1,72 @@
-.venv
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python environment files
 .env
+.env.*
+!.env.example
+
+# Python cache / build / tooling
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+site/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+
+# Local raw data and scratch space
 data/raw/
+tmp/
+temp/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/*.tsbuildinfo
+
+# JS package manager noise
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+
+# Local caches
+.cache/
+
+# Project note:
+# `artifacts/` and `data/processed/` are intentionally tracked in this repo
+# because they are part of the reproducible ML output shared with collaborators.
