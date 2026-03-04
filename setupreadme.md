@@ -80,6 +80,7 @@ Useful backend routes:
 
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/models`
+- `http://127.0.0.1:8000/score-company-csv` (POST, multipart CSV upload)
 - `http://127.0.0.1:8000/docs`
 
 ## 6. Start the frontend
@@ -103,6 +104,7 @@ Useful frontend routes:
 
 - `http://localhost:3000/`
 - `http://localhost:3000/models`
+- `http://localhost:3000/score`
 
 ## 7. Startup order
 
@@ -119,6 +121,8 @@ The Next.js frontend uses a local proxy route:
 
 - frontend route: `/api/models`
 - backend target: `http://127.0.0.1:8000/models`
+- frontend route: `/api/score-company-csv`
+- backend target: `http://127.0.0.1:8000/score-company-csv`
 
 By default, it points to:
 

@@ -21,6 +21,82 @@ Instead of predicting future defaults (which requires real-time data), Fulcrum p
 
 ---
 
+## Current Implementation Status (March 5, 2026)
+
+The sections below include both roadmap and design intent. This section reflects what is already implemented in the repo today.
+
+### Completed So Far
+
+- Cohort preparation completed for 100 companies (50 defaulters + 50 non-defaulters).
+- Company-year feature dataset prepared for 3 years per company (`300` rows total).
+- Feature engineering pipeline implemented:
+  - raw to model features (`scripts/build_model_features.py`)
+  - model features to training matrix (`scripts/build_training_matrix.py`)
+- Multi-model training pipeline implemented (`scripts/train_models.py`) with:
+  - company-grouped split (no row-level leakage across years of same company)
+  - Logistic Regression, Random Forest, HistGradientBoosting
+  - threshold selection on validation set
+  - leaderboard + per-model artifacts
+- Hybrid scoring layer implemented (`scripts/risk_decision.py`):
+  - ML probability + deterministic rule flags + support summary
+- Scoring interfaces implemented:
+  - batch scoring script (`scripts/score_batch.py`)
+  - FastAPI endpoints in `api/predict.py`
+- Frontend (Next.js) implemented:
+  - `/` landing page ("FULCRUM")
+  - `/models` model registry view
+  - `/score` CSV upload and scoring view
+  - proxy routes in Next API (no middleware)
+- Demo presentation files added in `demo/`:
+  - high-risk, low-risk, borderline, and 1-year reduced-confidence examples
+
+### Current API Surface
+
+- `GET /health`
+- `GET /models`
+- `GET /models/{model_name}`
+- `POST /score-company-csv`
+- `POST /score-company-json`
+
+### Current Frontend Surface
+
+- `http://localhost:3000/`
+- `http://localhost:3000/models`
+- `http://localhost:3000/score`
+
+### Current Artifacts Produced
+
+- Model artifacts: `artifacts/models/*.joblib`
+- Threshold + feature configs: `artifacts/models/*_threshold.json`, `artifacts/models/*_features.json`
+- Production model alias: `artifacts/models/production_model.json`
+- Reports: `artifacts/reports/model_leaderboard.csv`, `validation_metrics.json`, `test_metrics.json`
+
+## Current Caveats (Read Before Interpreting Results)
+
+These caveats are based on observed model behavior during demo scoring and are important for correct interpretation.
+
+- Risk band logic is ML-first:
+  - `risk_band` is based on `ml_probability` vs threshold.
+  - Rule flags can escalate risk but do not reduce a high ML score.
+- Some features currently behave like dataset shortcuts:
+  - sector categories with one-sided label representation
+  - sparse audit-presence signals (`opinion_present_flag`, `auditor_name_present_flag`)
+  - this can produce overconfident probabilities on synthetic/out-of-distribution inputs.
+- Probability calibration is limited in V1:
+  - scores can be extremely close to `0` or `1`
+  - treat probability as pattern-similarity strength, not a literal event probability.
+- Missingness remains high in optional governance/audit fields:
+  - imputation warnings are expected for many inputs
+  - one-year scoring is supported but has reduced confidence due to missing temporal features.
+- Demo CSV outcomes are model-dependent:
+  - demo files in `demo/` are tuned to the current trained artifact set.
+  - if models are retrained with new data/features, expected demo bands may change.
+- This system is decision support, not a legal determination:
+  - output indicates similarity to historical wilful-defaulter patterns
+  - it does not prove fraud, intent, or legal wilful-default status.
+
+---
+
 ## Project Scope
 
 ### Initial Scope (First Milestone): 100 Companies
