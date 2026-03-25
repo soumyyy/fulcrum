@@ -524,9 +524,9 @@ def save_artifacts(results: list[TrainedModelResult], config: dict[str, Any]) ->
         validation_metrics[model_name] = result.validation_metrics
         test_metrics[model_name] = result.test_metrics
         artifact_manifest[model_name] = {
-            "model_path": str(model_path),
-            "threshold_path": str(threshold_path),
-            "features_path": str(features_path),
+            "model_path": str(model_path.relative_to(PROJECT_ROOT)),
+            "threshold_path": str(threshold_path.relative_to(PROJECT_ROOT)),
+            "features_path": str(features_path.relative_to(PROJECT_ROOT)),
             "model_version": result.bundle["model_version"],
             "dataset_sha256": result.bundle["dataset_sha256"],
             "feature_list_version": result.bundle["feature_list_version"],
