@@ -71,6 +71,7 @@ TEMPORAL_BASE_COLUMNS = [
     "pat",
     "ebitda",
     "total_borrowings",
+    "total_assets",
     "cfo",
     "current_ratio",
     "debt_to_equity",
@@ -226,19 +227,28 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["debt_service_coverage_proxy"] = safe_divide(out["cfo"], out["interest_expense"])
 
     out["net_profit_margin"] = safe_divide(out["pat"], out["revenue"])
+    out["pat_margin"] = out["net_profit_margin"]
     out["ebitda_margin"] = safe_divide(out["ebitda"], out["revenue"])
     out["roa"] = safe_divide(out["pat"], out["total_assets"])
     out["roe"] = safe_positive_divide(out["pat"], out["total_equity"])
+    out["ebitda_to_interest"] = safe_positive_divide(out["ebitda"], out["interest_expense"])
 
     out["asset_turnover"] = safe_divide(out["revenue"], out["total_assets"])
     out["receivables_turnover"] = safe_divide(out["revenue"], out["receivables"])
     out["cfo_margin"] = safe_divide(out["cfo"], out["revenue"])
+    out["cfo_to_assets"] = safe_divide(out["cfo"], out["total_assets"])
     out["cash_flow_to_debt"] = safe_divide(out["cfo"], out["total_borrowings"])
+    out["cfo_to_debt"] = out["cash_flow_to_debt"]
+    out["cfo_to_ebitda"] = safe_divide(out["cfo"], out["ebitda"])
+    out["net_cash_change_to_assets"] = safe_divide(out["net_cash_change"], out["total_assets"])
     out["working_capital_to_assets"] = safe_divide(out["working_capital"], out["total_assets"])
     out["retained_earnings_to_assets"] = safe_divide(out["retained_earnings"], out["total_assets"])
     out["ebit_to_assets"] = safe_divide(out["ebit"], out["total_assets"])
     out["equity_ratio"] = safe_divide(out["total_equity"], out["total_assets"])
     out["current_liabilities_to_assets"] = safe_divide(out["current_liabilities"], out["total_assets"])
+    out["log_total_assets"] = out["total_assets"].where(out["total_assets"] > 0).map(math.log)
+    out["log_revenue"] = out["revenue"].where(out["revenue"] > 0).map(math.log)
+    out["log_total_borrowings"] = out["total_borrowings"].where(out["total_borrowings"] > 0).map(math.log)
 
     out["rpt_to_revenue_ratio"] = safe_divide(out["related_party_transactions_amount"], out["revenue"])
     out["contingent_to_networth_ratio"] = safe_positive_divide(out["contingent_liabilities_amount"], out["total_equity"])
@@ -294,6 +304,13 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out = add_temporal_features(out)
+    out["revenue_growth_yoy"] = out["revenue_yoy"]
+    out["debt_growth_yoy"] = out["total_borrowings_yoy"]
+    out["cfo_growth_yoy"] = out["cfo_yoy"]
+    out["asset_growth_yoy"] = (
+        out.groupby("company_name", group_keys=False)["total_assets"]
+        .transform(normalized_yoy_change)
+    )
 
     out.sort_values(["company_name", "financial_year"], inplace=True)
     out.reset_index(drop=True, inplace=True)

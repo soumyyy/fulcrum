@@ -1,0 +1,73 @@
+version: "tier1_v1"
+
+dataset:
+  id_columns:
+    - company_name
+    - cin
+    - financial_year
+    - cohort
+    - sector
+  label_column: target_wilful_default
+  categorical_columns:
+    - sector
+  drop_raw_text_columns:
+    - opinion_type
+    - auditor_name
+  exclude_direct_columns: []
+  include_feature_columns:
+    - debt_to_equity
+    - debt_to_assets
+    - ebitda_margin
+    - pat_margin
+    - roa
+    - roe
+    - ebitda_to_interest
+    - cfo_to_assets
+    - cfo_to_debt
+    - cfo_to_ebitda
+    - retained_earnings_to_assets
+    - net_cash_change_to_assets
+    - log_total_assets
+    - log_revenue
+    - revenue_growth_yoy
+    - debt_growth_yoy
+    - cfo_growth_yoy
+    - asset_growth_yoy
+
+preprocessing:
+  numeric_imputer: median
+  correlation_threshold: 0.90
+
+splits:
+  train_companies: 70
+  validation_companies: 15
+  test_companies: 15
+  random_seed: 42
+
+threshold_policy:
+  start: 0.10
+  stop: 0.90
+  step: 0.01
+  target_recall: 0.75
+
+models:
+  logistic_regression:
+    enabled: true
+    C_grid: [0.1, 1.0, 10.0]
+  random_forest:
+    enabled: true
+    n_estimators: [200, 300]
+    max_depth: [10, 15]
+    min_samples_leaf: [1, 2, 4]
+    max_features: ["sqrt", 0.5]
+  hist_gradient_boosting:
+    enabled: true
+    learning_rate: [0.05, 0.1]
+    max_depth: [3, 5]
+    max_iter: [200, 300]
+    min_samples_leaf: [10, 20]
+
+artifacts:
+  model_dir: artifacts/models
+  report_dir: artifacts/reports
+  production_alias_file: artifacts/models/production_model.json

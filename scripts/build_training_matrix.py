@@ -41,6 +41,7 @@ def build_training_matrix_df(df: pd.DataFrame, config: dict[str, Any]) -> pd.Dat
     label_column = str(dataset_cfg.get("label_column", "target_wilful_default"))
     drop_raw_text = set(dataset_cfg.get("drop_raw_text_columns", []))
     exclude_direct = set(dataset_cfg.get("exclude_direct_columns", []))
+    include_direct = list(dataset_cfg.get("include_feature_columns", []))
 
     required = id_columns + [label_column]
     missing_required = [col for col in required if col not in df.columns]
@@ -48,10 +49,16 @@ def build_training_matrix_df(df: pd.DataFrame, config: dict[str, Any]) -> pd.Dat
         raise ValueError(f"Missing required column(s): {missing_required}")
 
     excluded = drop_raw_text | exclude_direct
-    feature_columns = [
-        col for col in df.columns
-        if col not in set(required) and col not in excluded
-    ]
+    if include_direct:
+        missing_included = [col for col in include_direct if col not in df.columns]
+        if missing_included:
+            raise ValueError(f"Configured include_feature_columns not found: {missing_included}")
+        feature_columns = [col for col in include_direct if col not in excluded]
+    else:
+        feature_columns = [
+            col for col in df.columns
+            if col not in set(required) and col not in excluded
+        ]
 
     final_columns = required + feature_columns
     return df.loc[:, final_columns].copy()
