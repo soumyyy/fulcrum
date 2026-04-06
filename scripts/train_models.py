@@ -26,8 +26,9 @@ except ImportError:  # pragma: no cover - runtime guard
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
 
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.impute import SimpleImputer
+from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
@@ -40,7 +41,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedGroupKFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -59,7 +60,8 @@ REFERENCE_FEATURES = [
 MODEL_PRIORITY = {
     "logistic_regression": 0,
     "random_forest": 1,
-    "hist_gradient_boosting": 2,
+    "extra_trees": 2,
+    "hist_gradient_boosting": 3,
 }
 
 
@@ -70,6 +72,8 @@ class TrainedModelResult:
     validation_metrics: dict[str, Any]
     test_metrics: dict[str, Any]
     params: dict[str, Any]
+    cv_summary: dict[str, Any]
+    cv_fold_metrics: list[dict[str, Any]]
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -242,7 +246,6 @@ def build_model_candidates(config: dict[str, Any]) -> dict[str, list[tuple[dict[
             estimator = LogisticRegression(
                 C=float(c_value),
                 class_weight="balanced",
-                penalty="l2",
                 solver="liblinear",
                 max_iter=2000,
                 random_state=42,
@@ -299,6 +302,32 @@ def build_model_candidates(config: dict[str, Any]) -> dict[str, list[tuple[dict[
             )
             candidates["hist_gradient_boosting"].append((params, estimator, False))
 
+    et_cfg = model_cfg.get("extra_trees", {})
+    if et_cfg.get("enabled", False):
+        candidates["extra_trees"] = []
+        for n_estimators, max_depth, min_leaf, max_features in product(
+            et_cfg.get("n_estimators", [300]),
+            et_cfg.get("max_depth", [10]),
+            et_cfg.get("min_samples_leaf", [1]),
+            et_cfg.get("max_features", ["sqrt"]),
+        ):
+            params = {
+                "n_estimators": int(n_estimators),
+                "max_depth": int(max_depth),
+                "min_samples_leaf": int(min_leaf),
+                "max_features": max_features,
+            }
+            estimator = ExtraTreesClassifier(
+                n_estimators=int(n_estimators),
+                max_depth=int(max_depth),
+                min_samples_leaf=int(min_leaf),
+                max_features=max_features,
+                class_weight="balanced",
+                random_state=42,
+                n_jobs=1,
+            )
+            candidates["extra_trees"].append((params, estimator, False))
+
     if not candidates:
         raise ValueError("No enabled models found in config")
     return candidates
@@ -349,6 +378,46 @@ def metric_bundle(y_true: np.ndarray, probabilities: np.ndarray, threshold: floa
     }
 
 
+def fit_probability_calibrator(raw_probabilities: np.ndarray, y_true: np.ndarray, config: dict[str, Any]) -> dict[str, Any]:
+    calibration_cfg = config.get("calibration", {})
+    method = str(calibration_cfg.get("method", "sigmoid")).strip().lower()
+    if method in {"", "none", "off"}:
+        return {"method": "none", "estimator": None}
+
+    x = np.asarray(raw_probabilities, dtype=float).reshape(-1, 1)
+    y = np.asarray(y_true, dtype=int)
+
+    if method == "sigmoid":
+        estimator = LogisticRegression(solver="lbfgs", max_iter=1000, random_state=42)
+        estimator.fit(x, y)
+        return {"method": method, "estimator": estimator}
+
+    if method == "isotonic":
+        estimator = IsotonicRegression(out_of_bounds="clip")
+        estimator.fit(x.ravel(), y)
+        return {"method": method, "estimator": estimator}
+
+    raise ValueError(f"Unsupported calibration method: {method}")
+
+
+def apply_probability_calibrator(calibrator: dict[str, Any] | None, raw_probabilities: np.ndarray) -> np.ndarray:
+    raw = np.asarray(raw_probabilities, dtype=float)
+    if not calibrator:
+        return raw
+
+    method = str(calibrator.get("method", "none"))
+    estimator = calibrator.get("estimator")
+    if method == "none" or estimator is None:
+        return raw
+    if method == "sigmoid":
+        calibrated = estimator.predict_proba(raw.reshape(-1, 1))[:, 1]
+    elif method == "isotonic":
+        calibrated = estimator.predict(raw)
+    else:
+        raise ValueError(f"Unsupported calibrator in bundle: {method}")
+    return np.clip(np.asarray(calibrated, dtype=float), 0.0, 1.0)
+
+
 def compute_sector_reference(df: pd.DataFrame) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
     for sector, group in df.groupby("sector"):
@@ -396,11 +465,14 @@ def fit_and_select_model(
             ]
         )
         pipeline.fit(x_train, y_train)
-        val_probs = pipeline.predict_proba(x_val)[:, 1]
+        raw_val_probs = pipeline.predict_proba(x_val)[:, 1]
+        calibrator = fit_probability_calibrator(raw_val_probs, y_val, config)
+        val_probs = apply_probability_calibrator(calibrator, raw_val_probs)
         threshold = select_threshold(y_val, val_probs, config)
         val_metrics = metric_bundle(y_val, val_probs, threshold)
 
-        test_probs = pipeline.predict_proba(x_test)[:, 1]
+        raw_test_probs = pipeline.predict_proba(x_test)[:, 1]
+        test_probs = apply_probability_calibrator(calibrator, raw_test_probs)
         test_metrics = metric_bundle(y_test, test_probs, threshold)
 
         transformed_feature_names = [
@@ -423,6 +495,8 @@ def fit_and_select_model(
             "threshold_version": str(config.get("version", "v1")),
             "sector_reference": sector_reference,
             "params": params,
+            "calibration_method": calibrator["method"],
+            "calibrator": calibrator,
         }
 
         record = TrainedModelResult(
@@ -431,6 +505,8 @@ def fit_and_select_model(
             validation_metrics=val_metrics,
             test_metrics=test_metrics,
             params=params,
+            cv_summary={},
+            cv_fold_metrics=[],
         )
 
         if best_record is None:
@@ -454,6 +530,105 @@ def fit_and_select_model(
     if best_record is None:
         raise RuntimeError(f"No model could be trained for {model_name}")
     return best_record
+
+
+def _company_holdout_from_fold(train_fold: pd.DataFrame, label_column: str, seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    company_df = (
+        train_fold[["cin", "company_name", label_column]]
+        .drop_duplicates(subset=["cin"])
+        .reset_index(drop=True)
+    )
+    calibr_companies = max(1, int(round(len(company_df) * 0.2)))
+    if calibr_companies >= len(company_df):
+        calibr_companies = max(1, len(company_df) - 1)
+
+    fit_comp, calib_comp = train_test_split(
+        company_df,
+        test_size=calibr_companies,
+        stratify=company_df[label_column],
+        random_state=seed,
+    )
+    fit_df = train_fold[train_fold["cin"].isin(fit_comp["cin"])].copy()
+    calib_df = train_fold[train_fold["cin"].isin(calib_comp["cin"])].copy()
+    return fit_df, calib_df
+
+
+def run_grouped_cv(
+    result: TrainedModelResult,
+    df: pd.DataFrame,
+    label_column: str,
+    config: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    cv_cfg = config.get("cross_validation", {})
+    if not bool(cv_cfg.get("enabled", True)):
+        return {}, []
+
+    folds = int(cv_cfg.get("folds", 5))
+    seed = int(cv_cfg.get("random_seed", 42))
+    numeric_columns = list(result.bundle["numeric_columns"])
+    categorical_columns = list(result.bundle["categorical_columns"])
+    sector_categories = list(result.bundle["sector_categories"])
+    params = dict(result.params)
+    model_name = result.model_name
+
+    candidates = build_model_candidates(config).get(model_name, [])
+    estimator = None
+    scale_numeric = False
+    for candidate_params, candidate_estimator, candidate_scale in candidates:
+        if candidate_params == params:
+            estimator = candidate_estimator
+            scale_numeric = candidate_scale
+            break
+    if estimator is None:
+        raise RuntimeError(f"Could not reconstruct estimator for CV: {model_name}")
+
+    splitter = StratifiedGroupKFold(n_splits=folds, shuffle=True, random_state=seed)
+    x_all = df[numeric_columns + categorical_columns].copy()
+    y_all = df[label_column].to_numpy()
+    groups = df["cin"].to_numpy()
+
+    fold_metrics: list[dict[str, Any]] = []
+    for fold_idx, (train_idx, test_idx) in enumerate(splitter.split(x_all, y_all, groups), start=1):
+        fold_train = df.iloc[train_idx].copy()
+        fold_test = df.iloc[test_idx].copy()
+        fold_fit, fold_calib = _company_holdout_from_fold(fold_train, label_column, seed + fold_idx)
+
+        preprocessor = build_preprocessor(numeric_columns, categorical_columns, sector_categories, scale_numeric)
+        pipeline = Pipeline(
+            [
+                ("preprocessor", preprocessor),
+                ("classifier", estimator),
+            ]
+        )
+        pipeline.fit(fold_fit[numeric_columns + categorical_columns], fold_fit[label_column].to_numpy())
+
+        raw_calib_probs = pipeline.predict_proba(fold_calib[numeric_columns + categorical_columns])[:, 1]
+        calibrator = fit_probability_calibrator(raw_calib_probs, fold_calib[label_column].to_numpy(), config)
+        calib_probs = apply_probability_calibrator(calibrator, raw_calib_probs)
+        threshold = select_threshold(fold_calib[label_column].to_numpy(), calib_probs, config)
+
+        raw_test_probs = pipeline.predict_proba(fold_test[numeric_columns + categorical_columns])[:, 1]
+        test_probs = apply_probability_calibrator(calibrator, raw_test_probs)
+        metrics = metric_bundle(fold_test[label_column].to_numpy(), test_probs, threshold)
+        metrics["fold"] = fold_idx
+        metrics["rows"] = int(len(fold_test))
+        metrics["companies"] = int(fold_test["cin"].nunique())
+        fold_metrics.append(metrics)
+
+    metrics_df = pd.DataFrame(fold_metrics)
+    summary = {
+        "model_name": model_name,
+        "folds": folds,
+        "roc_auc_mean": float(metrics_df["roc_auc"].mean()),
+        "roc_auc_std": float(metrics_df["roc_auc"].std(ddof=0)),
+        "pr_auc_mean": float(metrics_df["pr_auc"].mean()),
+        "pr_auc_std": float(metrics_df["pr_auc"].std(ddof=0)),
+        "f1_mean": float(metrics_df["f1"].mean()),
+        "f1_std": float(metrics_df["f1"].std(ddof=0)),
+        "brier_score_mean": float(metrics_df["brier_score"].mean()),
+        "brier_score_std": float(metrics_df["brier_score"].std(ddof=0)),
+    }
+    return summary, fold_metrics
 
 
 def save_feature_diagnostics(bundle: dict[str, Any], report_dir: Path) -> None:
@@ -494,6 +669,8 @@ def save_artifacts(results: list[TrainedModelResult], config: dict[str, Any]) ->
 
     validation_metrics: dict[str, Any] = {}
     test_metrics: dict[str, Any] = {}
+    cv_summary_rows: list[dict[str, Any]] = []
+    cv_fold_rows: list[dict[str, Any]] = []
     leaderboard_rows: list[dict[str, Any]] = []
     artifact_manifest: dict[str, Any] = {}
 
@@ -531,12 +708,18 @@ def save_artifacts(results: list[TrainedModelResult], config: dict[str, Any]) ->
             "dataset_sha256": result.bundle["dataset_sha256"],
             "feature_list_version": result.bundle["feature_list_version"],
             "threshold_version": result.bundle["threshold_version"],
+            "calibration_method": result.bundle.get("calibration_method", "none"),
             "params": result.params,
         }
+        if result.cv_summary:
+            cv_summary_rows.append(result.cv_summary)
+        for item in result.cv_fold_metrics:
+            cv_fold_rows.append({"model_name": model_name, **item})
         leaderboard_rows.append(
             {
                 "model_name": model_name,
                 "threshold": result.bundle["threshold"],
+                "calibration_method": result.bundle.get("calibration_method", "none"),
                 "validation_pr_auc": result.validation_metrics["pr_auc"],
                 "validation_roc_auc": result.validation_metrics["roc_auc"],
                 "validation_brier_score": result.validation_metrics["brier_score"],
@@ -556,6 +739,10 @@ def save_artifacts(results: list[TrainedModelResult], config: dict[str, Any]) ->
     leaderboard.to_csv(report_dir / "model_leaderboard.csv", index=False)
     (report_dir / "validation_metrics.json").write_text(json.dumps(validation_metrics, indent=2), encoding="utf-8")
     (report_dir / "test_metrics.json").write_text(json.dumps(test_metrics, indent=2), encoding="utf-8")
+    if cv_summary_rows:
+        pd.DataFrame(cv_summary_rows).to_csv(report_dir / "grouped_cv_summary.csv", index=False)
+    if cv_fold_rows:
+        pd.DataFrame(cv_fold_rows).to_csv(report_dir / "grouped_cv_fold_metrics.csv", index=False)
 
     production = choose_production_model(leaderboard, artifact_manifest)
     production_alias_file.parent.mkdir(parents=True, exist_ok=True)
@@ -620,22 +807,27 @@ def main() -> None:
     results: list[TrainedModelResult] = []
     candidates = build_model_candidates(config)
     for model_name, model_candidates in candidates.items():
-        results.append(
-            fit_and_select_model(
-                model_name=model_name,
-                candidates=model_candidates,
-                train_df=train_df.copy(),
-                val_df=val_df.copy(),
-                test_df=test_df.copy(),
-                numeric_columns=numeric_columns,
-                categorical_columns=categorical_columns,
-                sector_categories=sector_categories,
-                label_column=label_column,
-                config=config,
-                dataset_sha256=dataset_hash,
-                sector_reference=sector_reference,
-            )
+        result = fit_and_select_model(
+            model_name=model_name,
+            candidates=model_candidates,
+            train_df=train_df.copy(),
+            val_df=val_df.copy(),
+            test_df=test_df.copy(),
+            numeric_columns=numeric_columns,
+            categorical_columns=categorical_columns,
+            sector_categories=sector_categories,
+            label_column=label_column,
+            config=config,
+            dataset_sha256=dataset_hash,
+            sector_reference=sector_reference,
         )
+        result.cv_summary, result.cv_fold_metrics = run_grouped_cv(
+            result=result,
+            df=df.copy(),
+            label_column=label_column,
+            config=config,
+        )
+        results.append(result)
 
     leaderboard, production = save_artifacts(results, config)
     print_summary(train_df, val_df, test_df, leaderboard, production)

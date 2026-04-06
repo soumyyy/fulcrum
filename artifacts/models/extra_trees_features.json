@@ -1,5 +1,5 @@
 {
-  "model_name": "logistic_regression",
+  "model_name": "extra_trees",
   "input_columns": [
     "debt_to_assets",
     "ebitda_margin",

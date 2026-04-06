@@ -1,0 +1,30 @@
+feature,importance
+num__debt_to_assets,0.2290678129739783
+num__log_revenue,0.10259447676804255
+num__roa,0.10243998660314486
+num__log_total_assets,0.08021901753087184
+cat__sector_FMCG / Foods / Agro,0.0712466937422829
+num__cfo_to_assets,0.06606233060059805
+cat__sector_FMCG / Foods,0.05060695194751003
+cat__sector_Travel / Hospitality,0.04131991947359877
+cat__sector_Textiles,0.041130886436821515
+num__ebitda_margin,0.027406386627665924
+cat__sector_Infrastructure,0.02621553720272128
+cat__sector_Gems & Jewellery,0.02261912480379679
+num__net_cash_change_to_assets,0.022377544620613143
+cat__sector_Pharma,0.01806682308618962
+cat__sector_Real Estate,0.017417525145572172
+cat__sector_Engineering / Manufacturing,0.012884816100560085
+num__cfo_to_ebitda,0.01130099566473511
+cat__sector_Oil & Gas / Energy,0.010496242170221918
+cat__sector_Cement,0.00877677831367001
+cat__sector_Travel / Aviation / Hospitality,0.008364347749244504
+cat__sector_Media,0.007692197569349817
+cat__sector_Steel & Metals,0.0069118946481605235
+cat__sector_Mining,0.006241388902810368
+cat__sector_NBFC / Leasing,0.004096017326353568
+cat__sector_IT / Services,0.0019679954458273266
+cat__sector_Shipbuilding,0.001250928566523503
+cat__sector_Logistics,0.0009078050637933684
+cat__sector_Travel / Aviation,0.00023473922950656832
+cat__sector_Oil & Gas,8.283568583547773e-05

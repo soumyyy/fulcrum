@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover - runtime guard
 from build_model_features import build_features
 from build_training_matrix import build_training_matrix_df
 from risk_decision import evaluate_hybrid_decision, load_rules
+from train_models import apply_probability_calibrator
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -228,7 +229,8 @@ def _score_validated_company(
     training_df = build_training_matrix_df(feature_df.copy(), train_config)
     model_input = _aligned_model_input(training_df, bundle)
 
-    probabilities = bundle["pipeline"].predict_proba(model_input)[:, 1]
+    raw_probabilities = bundle["pipeline"].predict_proba(model_input)[:, 1]
+    probabilities = apply_probability_calibrator(bundle.get("calibrator"), raw_probabilities)
     threshold = float(bundle["threshold"])
     imputed_fraction = model_input.isna().sum(axis=1) / max(len(model_input.columns), 1)
 

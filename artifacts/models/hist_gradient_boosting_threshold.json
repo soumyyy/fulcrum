@@ -1,5 +1,5 @@
 {
   "model_name": "hist_gradient_boosting",
-  "threshold": 0.38999999999999985,
-  "threshold_version": "v1"
+  "threshold": 0.39999999999999986,
+  "threshold_version": "tier1a_v1"
 }

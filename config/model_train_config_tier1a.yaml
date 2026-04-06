@@ -42,6 +42,14 @@ threshold_policy:
   step: 0.01
   target_recall: 0.75
 
+calibration:
+  method: sigmoid
+
+cross_validation:
+  enabled: true
+  folds: 5
+  random_seed: 42
+
 models:
   logistic_regression:
     enabled: true
@@ -51,6 +59,12 @@ models:
     n_estimators: [200, 300]
     max_depth: [10, 15]
     min_samples_leaf: [1, 2, 4]
+    max_features: ["sqrt", 0.5]
+  extra_trees:
+    enabled: true
+    n_estimators: [300, 500]
+    max_depth: [10, 15]
+    min_samples_leaf: [1, 2]
     max_features: ["sqrt", 0.5]
   hist_gradient_boosting:
     enabled: true

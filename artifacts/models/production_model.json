@@ -1,13 +1,17 @@
 {
-  "model_path": "artifacts/models/logistic_regression.joblib",
-  "threshold_path": "artifacts/models/logistic_regression_threshold.json",
-  "features_path": "artifacts/models/logistic_regression_features.json",
-  "model_version": "v1",
-  "dataset_sha256": "fcdf9741fb9c14a65e44dad23efd249f5c7570598f8549267e876584fe4f9078",
-  "feature_list_version": "v1",
-  "threshold_version": "v1",
+  "model_path": "artifacts/models/hist_gradient_boosting.joblib",
+  "threshold_path": "artifacts/models/hist_gradient_boosting_threshold.json",
+  "features_path": "artifacts/models/hist_gradient_boosting_features.json",
+  "model_version": "tier1a_v1",
+  "dataset_sha256": "99e51a0c1557d38ff2d080c40ab90e0c3b0f18ba7178bfee8cf395901ed4be94",
+  "feature_list_version": "tier1a_v1",
+  "threshold_version": "tier1a_v1",
+  "calibration_method": "sigmoid",
   "params": {
-    "C": 10.0
+    "learning_rate": 0.05,
+    "max_depth": 5,
+    "max_iter": 200,
+    "min_samples_leaf": 10
   },
-  "model_name": "logistic_regression"
+  "model_name": "hist_gradient_boosting"
 }

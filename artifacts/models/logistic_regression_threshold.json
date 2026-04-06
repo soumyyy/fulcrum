@@ -1,5 +1,5 @@
 {
   "model_name": "logistic_regression",
-  "threshold": 0.7799999999999997,
-  "threshold_version": "v1"
+  "threshold": 0.4199999999999998,
+  "threshold_version": "tier1a_v1"
 }
