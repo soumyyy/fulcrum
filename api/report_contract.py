@@ -159,6 +159,7 @@ class ReportJobResult(BaseModel):
     job_id: str
     status: ReportJobStatus
     company: CompanyHint
+    reporting_context: dict[str, Any] = Field(default_factory=dict)
     extractions: list[ExtractedField] = Field(default_factory=list)
     validation_issues: list[ValidationIssue] = Field(default_factory=list)
     features: list[FeatureValue] = Field(default_factory=list)

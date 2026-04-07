@@ -27,6 +27,7 @@ from scoring_utils import (  # noqa: E402
 )
 from risk_decision import load_rules  # noqa: E402
 from report_job_runner import (  # noqa: E402
+    REPORT_JOBS_DIR,
     create_job,
     delete_job,
     read_events,
@@ -464,6 +465,58 @@ async def upload_annual_report(
         events_url=f"/reports/{job_id}/events",
         result_url=f"/reports/{job_id}",
     )
+
+
+@app.get("/reports")
+def report_jobs(limit: int = Query(default=25, ge=1, le=100)) -> dict[str, Any]:
+    jobs: list[dict[str, Any]] = []
+    if REPORT_JOBS_DIR.exists():
+        for path in REPORT_JOBS_DIR.iterdir():
+            job_path = path / "job.json"
+            if not job_path.exists():
+                continue
+            try:
+                job = json.loads(job_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                continue
+            result_path = path / "result.json"
+            result: dict[str, Any] = {}
+            if result_path.exists():
+                try:
+                    loaded = json.loads(result_path.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        result = loaded
+                except Exception:  # noqa: BLE001
+                    result = {}
+
+            company = result.get("company") if isinstance(result.get("company"), dict) else job.get("company", {})
+            model_output = result.get("model_output") if isinstance(result.get("model_output"), dict) else {}
+            jobs.append(
+                {
+                    "job_id": job.get("job_id"),
+                    "status": job.get("status"),
+                    "progress_pct": job.get("progress_pct"),
+                    "current_stage": job.get("current_stage"),
+                    "message": job.get("message"),
+                    "created_at": job.get("created_at"),
+                    "updated_at": job.get("updated_at"),
+                    "completed_at": job.get("completed_at"),
+                    "upload_filename": job.get("upload_filename"),
+                    "company_name": company.get("company_name"),
+                    "cin": company.get("cin"),
+                    "sector": company.get("sector"),
+                    "financial_year": company.get("financial_year"),
+                    "basis_preference": company.get("basis_preference"),
+                    "decision_bucket": model_output.get("decision_bucket"),
+                    "engine_score_0_100": model_output.get("engine_score_0_100"),
+                    "engine_risk_band": model_output.get("engine_risk_band"),
+                    "model_alignment": model_output.get("model_alignment"),
+                    "has_result": bool(result),
+                }
+            )
+
+    jobs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return {"status": "ok", "count": len(jobs), "results": jobs[:limit]}
 
 
 @app.get("/reports/{job_id}/status", response_model=ReportJobStatusResponse)

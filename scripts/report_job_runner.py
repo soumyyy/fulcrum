@@ -445,6 +445,72 @@ def _contract_extractions(job_id: str, payload: dict[str, Any]) -> list[dict[str
     return out
 
 
+MONETARY_FIELDS = {
+    "revenue",
+    "pat",
+    "interest_expense",
+    "tax_expense",
+    "depreciation",
+    "ebitda",
+    "total_equity",
+    "total_borrowings",
+    "total_assets",
+    "retained_earnings",
+    "cfo",
+    "cfi",
+    "cff",
+    "net_cash_change",
+    "current_assets",
+    "current_liabilities",
+    "cash_and_equivalents",
+    "inventory",
+    "receivables",
+    "capex",
+    "contingent_liabilities_amount",
+    "related_party_transactions_amount",
+}
+
+
+def _reporting_context(payload: dict[str, Any], extractions: list[dict[str, Any]]) -> dict[str, Any]:
+    document = payload.get("document", {}) if isinstance(payload.get("document"), dict) else {}
+    monetary_scales: dict[str, int] = {}
+    monetary_units: dict[str, int] = {}
+    for item in extractions:
+        if item.get("field") not in MONETARY_FIELDS:
+            continue
+        scale = str(item.get("scale") or "").strip()
+        unit = str(item.get("unit") or "").strip()
+        if scale:
+            monetary_scales[scale] = monetary_scales.get(scale, 0) + 1
+        if unit:
+            monetary_units[unit] = monetary_units.get(unit, 0) + 1
+
+    detected_scale = str(document.get("scale_detected") or "").strip()
+    if not detected_scale and monetary_scales:
+        detected_scale = max(monetary_scales, key=monetary_scales.get)
+
+    detected_unit = str(document.get("currency") or "").strip()
+    if monetary_units:
+        detected_unit = max(monetary_units, key=monetary_units.get)
+    if detected_unit and detected_scale and detected_unit.lower() == detected_scale.lower():
+        source_basis = detected_scale
+    else:
+        source_basis = " ".join(part for part in [detected_unit, detected_scale] if part).strip()
+
+    unit_confidence = "high" if detected_scale else "low"
+    return {
+        "source_currency": document.get("currency") or "INR",
+        "source_scale_detected": detected_scale or None,
+        "source_unit_basis": source_basis or None,
+        "normalized_monetary_unit": "INR crore",
+        "unit_confidence": unit_confidence,
+        "note": (
+            "Monetary values are shown after normalization to INR crore for model scoring. "
+            "The original annual-report unit basis is retained in extracted field metadata."
+        ),
+    }
+
+
 def _validation_issues(payload: dict[str, Any], job_id: str) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for note in payload.get("validation_notes", []) or []:
@@ -460,6 +526,16 @@ def _validation_issues(payload: dict[str, Any], job_id: str) -> list[dict[str, A
         )
 
     document = payload.get("document", {}) if isinstance(payload.get("document"), dict) else {}
+    if not document.get("scale_detected"):
+        issues.append(
+            {
+                "field": "scale_detected",
+                "severity": "watch",
+                "message": "Annual-report monetary unit basis was not explicitly detected; monetary values are still normalized to INR crore for model scoring and should be source-checked.",
+                "source_refs": [],
+            }
+        )
+
     for warning in document.get("warnings", []) or []:
         issues.append(
             {
@@ -735,9 +811,22 @@ def _risk_observations(features: list[dict[str, Any]], supplementary: dict[str, 
             observations.append(f"EBITDA/interest is {ebitda_to_interest:.2f}, above the 2.0x comfort line.")
 
     observations.append(
-        f"Model bucket is {model_output.get('decision_bucket')} with engine score {float(model_output.get('engine_score_0_100', 0.0)):.2f}/100 and audit score {float(model_output.get('audit_score_0_100', 0.0)):.2f}/100."
+        f"Model bucket is {model_output.get('decision_bucket')} with primary risk score {float(model_output.get('engine_score_0_100', 0.0)):.2f}/100 and benchmark score {float(model_output.get('audit_score_0_100', 0.0)):.2f}/100."
     )
     return observations
+
+
+def _public_model_context(model_output: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "primary_risk_probability": model_output.get("engine_probability"),
+        "primary_risk_score_0_100": model_output.get("engine_score_0_100"),
+        "primary_risk_band": model_output.get("engine_risk_band"),
+        "benchmark_probability": model_output.get("audit_probability"),
+        "benchmark_score_0_100": model_output.get("audit_score_0_100"),
+        "model_alignment": model_output.get("model_alignment"),
+        "decision_bucket": model_output.get("decision_bucket"),
+        "top_drivers": model_output.get("top_drivers", []),
+    }
 
 
 def _compact_extractions(extractions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -769,9 +858,12 @@ def _compact_extractions(extractions: list[dict[str, Any]]) -> list[dict[str, An
         compact.append(
             {
                 "field": item.get("field"),
-                "value": item.get("normalized_value") if item.get("normalized_value") is not None else item.get("value"),
-                "unit": item.get("unit"),
-                "basis": item.get("basis"),
+                "source_value": item.get("value"),
+                "normalized_value": item.get("normalized_value"),
+                "normalized_unit": "INR crore" if item.get("field") in MONETARY_FIELDS else item.get("unit"),
+                "source_unit": item.get("unit"),
+                "source_scale": item.get("scale"),
+                "reporting_basis": item.get("basis"),
                 "confidence": item.get("confidence"),
                 "source": (item.get("source_refs") or [{}])[0].get("snippet") if item.get("source_refs") else None,
             }
@@ -790,7 +882,7 @@ def _fallback_sections(company: dict[str, Any], model_output: dict[str, Any], fe
             "markdown": (
                 f"{company['company_name']} scored {model_output['engine_score_0_100']:.2f}/100 "
                 f"with decision bucket {model_output['decision_bucket']}. "
-                f"Audit baseline score: {model_output['audit_score_0_100']:.2f}/100."
+                f"Benchmark score: {model_output['audit_score_0_100']:.2f}/100."
             ),
             "data": model_output,
             "source_refs": [],
@@ -828,7 +920,8 @@ def _apply_llm_synthesis(result: dict[str, Any], latest_score: dict[str, Any] | 
     supplementary = _supplementary_ratios_from_extractions(result["extractions"])
     context = {
         "company": result["company"],
-        "model_output": result["model_output"],
+        "reporting_context": result.get("reporting_context", {}),
+        "model_output": _public_model_context(result["model_output"]),
         "benchmark_output": result["benchmark_output"],
         "features": result["features"],
         "supplementary_ratios": supplementary,
@@ -945,11 +1038,12 @@ def _build_scored_result(job: dict[str, Any], extraction_payload: dict[str, Any]
         "sector_risk_percentile": float(year_score.get("sector_risk_percentile", 100.0)),
         "peer_context": "Percentiles are computed from the current upload job scope until portfolio benchmark attachment is added.",
         "benchmark_notes": [
-            "Uploaded report was scored through the Tier 1A engine and logistic audit baseline.",
+            "Uploaded report was scored through the primary risk score and benchmark score stack.",
             "Sector may be 'Unknown' if the annual report did not disclose a clean business category.",
         ],
     }
     extractions = _contract_extractions(job_id, extraction_payload)
+    reporting_context = _reporting_context(extraction_payload, extractions)
     validation_issues = _validation_issues(extraction_payload, job_id)
     features = _feature_values(raw_df)
     sections = _fallback_sections(company, model_output, features, latest_score)
@@ -967,6 +1061,7 @@ def _build_scored_result(job: dict[str, Any], extraction_payload: dict[str, Any]
         "job_id": job_id,
         "status": "completed",
         "company": company,
+        "reporting_context": reporting_context,
         "extractions": extractions,
         "validation_issues": validation_issues,
         "features": features,

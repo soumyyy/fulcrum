@@ -32,6 +32,30 @@ type RatioStandard = {
   source: string;
 };
 
+const MONETARY_FIELDS = new Set([
+  "revenue",
+  "pat",
+  "interest_expense",
+  "tax_expense",
+  "depreciation",
+  "ebitda",
+  "total_equity",
+  "total_borrowings",
+  "total_assets",
+  "retained_earnings",
+  "cfo",
+  "cfi",
+  "cff",
+  "net_cash_change",
+  "current_assets",
+  "current_liabilities",
+  "cash_and_equivalents",
+  "inventory",
+  "receivables",
+  "capex",
+  "contingent_liabilities_amount",
+]);
+
 const FEATURE_STANDARDS: Record<string, RatioStandard> = {
   debt_to_assets: {
     label: "Debt / Assets",
@@ -147,6 +171,13 @@ function markdownLite(value: string) {
   return value.replaceAll("**", "");
 }
 
+function memoBlocks(value: string) {
+  return markdownLite(value)
+    .split(/\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function upsertSection(current: ReportSection[], next: ReportSection) {
   const index = current.findIndex((section) => section.section_id === next.section_id);
   if (index === -1) return [...current, next];
@@ -167,7 +198,10 @@ function displayField(extractions: ExtractedField[], field: string) {
   if (!item) return "--";
   const value = item.normalized_value ?? item.value;
   if (value === null || value === undefined || value === "") return "--";
-  if (typeof value === "number") return `${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}${item.unit ? ` ${item.unit}` : ""}`;
+  if (typeof value === "number") {
+    const unit = MONETARY_FIELDS.has(field) && item.normalized_value !== null && item.normalized_value !== undefined ? "INR crore" : item.unit;
+    return `${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })}${unit ? ` ${unit}` : ""}`;
+  }
   return String(value);
 }
 
@@ -390,14 +424,14 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
         {error ? <Notice title="Report error" message={error} /> : null}
         {status?.status === "failed" && status.error ? <Notice title="Analysis failed" message={status.error} /> : null}
 
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-          <section className="space-y-5">
+        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="rounded-[2rem] border border-white/10 bg-[#0e1014]/95 shadow-2xl shadow-black/40">
             <CompanyOverview extractions={extractions} result={result} />
             <GeneratedSections sections={sections} />
-            <RiskSection features={featureRows} modelOutput={modelOutput} supplementaryRatios={supplementaryRows} />
+            <RiskAppendix features={featureRows} modelOutput={modelOutput} supplementaryRatios={supplementaryRows} />
           </section>
 
-          <aside className="space-y-5">
+          <aside className="space-y-5 xl:sticky xl:top-5">
             <ModelDecision finalStatement={finalStatement} modelOutput={modelOutput} />
             <FinancialSnapshot extractions={extractions} />
             <ValidationPanel result={result} />
@@ -410,21 +444,27 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
 
 function CompanyOverview({ extractions, result }: { extractions: ExtractedField[]; result: ReportJobResult | null }) {
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[#0e1014]/92 p-5 shadow-xl shadow-black/35">
-      <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#9ba1ad]">Company and scale</p>
-      <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <Metric label="Company" value={result?.company.company_name ?? displayField(extractions, "company_name")} />
-        <Metric label="CIN" value={result?.company.cin ?? displayField(extractions, "cin")} />
-        <Metric label="Financial year" value={result?.company.financial_year ? String(result.company.financial_year) : displayField(extractions, "financial_year")} />
-        <Metric label="Total assets" value={displayField(extractions, "total_assets")} />
-        <Metric label="Borrowings" value={displayField(extractions, "total_borrowings")} />
-        <Metric label="Equity" value={displayField(extractions, "total_equity")} />
+    <section className="border-b border-white/10 p-6 lg:p-8">
+      <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#9ba1ad]">Company profile</p>
+      <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)]">
+        <div>
+          <h2 className="text-4xl font-semibold tracking-[-0.07em] text-white">{result?.company.company_name ?? displayField(extractions, "company_name")}</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-[#cfc5b1]">
+            {result?.company.financial_year ?? displayField(extractions, "financial_year")} · {result?.company.sector ?? "Sector pending"} · {result?.company.basis_preference ?? "basis pending"}
+          </p>
+          <p className="mt-2 font-mono text-xs text-[#7f8794]">{result?.company.cin ?? displayField(extractions, "cin")}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <CompactMetric label="Assets" value={displayField(extractions, "total_assets")} />
+          <CompactMetric label="Borrowings" value={displayField(extractions, "total_borrowings")} />
+          <CompactMetric label="Equity" value={displayField(extractions, "total_equity")} />
+        </div>
       </div>
     </section>
   );
 }
 
-function RiskSection({
+function RiskAppendix({
   features,
   modelOutput,
   supplementaryRatios,
@@ -433,69 +473,62 @@ function RiskSection({
   modelOutput: ReportJobResult["model_output"];
   supplementaryRatios: { feature: string; value: number | null }[];
 }) {
+  const rows = [
+    ...features.map((feature) => {
+      const standard = FEATURE_STANDARDS[feature.feature] ?? {
+        label: feature.feature,
+        standard: "Contextual model input.",
+        interpretation: "Review with peers.",
+        analystRead: "Use this as supporting model context, not as a standalone decision rule.",
+        source: "Internal model feature.",
+      };
+      return {
+        key: feature.feature,
+        label: standard.label,
+        value: formatFeatureValue(feature),
+        standard,
+        tone: featureTone(feature),
+      };
+    }),
+    ...supplementaryRatios.map((ratio) => {
+      const standard = SUPPLEMENTARY_STANDARDS[ratio.feature];
+      return {
+        key: ratio.feature,
+        label: standard.label,
+        value: ratio.value?.toFixed(4) ?? "--",
+        standard,
+        tone: ratioTone(ratio.feature, ratio.value),
+      };
+    }),
+  ];
+
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[#0e1014]/92 p-5 shadow-xl shadow-black/35">
+    <section className="border-t border-white/10 p-6 lg:p-8">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#9ba1ad]">Risk assessment</p>
-          <h2 className="mt-2 text-4xl font-semibold tracking-[-0.07em] text-white">Ratios with operating standards</h2>
+          <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#9ba1ad]">Appendix</p>
+          <h2 className="mt-2 text-3xl font-semibold tracking-[-0.06em] text-white">Ratio evidence and standards</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#aeb7c5]">Supporting ratio calculations used to read the memo. These are deliberately separated from the narrative so the report scans like a document.</p>
         </div>
-        {modelOutput ? <Metric label="Engine score" value={modelOutput.engine_score_0_100.toFixed(1)} /> : null}
+        {modelOutput ? <CompactMetric label="Risk score" value={modelOutput.engine_score_0_100.toFixed(1)} /> : null}
       </div>
-      <div className="mt-5 space-y-3">
-        {features.map((feature) => {
-          const standard = FEATURE_STANDARDS[feature.feature] ?? {
-            label: feature.feature,
-            standard: "Contextual model input.",
-            interpretation: "Review with peers.",
-            analystRead: "Use this as supporting model context, not as a standalone decision rule.",
-            source: "Internal model feature.",
-          };
-          return (
-            <article className={`rounded-[1.25rem] border p-4 ${featureTone(feature)}`} key={feature.feature}>
-              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold tracking-[-0.04em] text-white">{standard.label}</h3>
-                  <p className="mt-1 text-sm leading-6 text-[#d8d2c3]">{standard.interpretation}</p>
-                </div>
-                <p className="font-mono text-2xl font-semibold text-[#ffb38f]">{formatFeatureValue(feature)}</p>
-              </div>
-              <p className="mt-3 rounded-2xl bg-black/25 p-3 text-xs leading-5 text-[#cfc5b1]">{standard.standard}</p>
-              <p className="mt-3 text-sm leading-6 text-[#bfb6a5]">{standard.analystRead}</p>
-              <p className="mt-2 text-[0.65rem] uppercase tracking-[0.18em] text-[#7f8794]">{standard.source}</p>
-            </article>
-          );
-        })}
-        {!features.length ? <p className="rounded-[1.5rem] border border-white/10 bg-black/20 p-8 text-center text-[#9ba1ad]">Waiting for ratios.</p> : null}
-      </div>
-      <div className="mt-7">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#9ba1ad]">Supplementary annual-report indicators</p>
-            <h3 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white">Liquidity and coverage checks</h3>
-          </div>
-          <p className="max-w-md text-xs leading-5 text-[#9ba1ad]">These are calculated from extracted report fields and are not necessarily Tier 1A model inputs.</p>
-        </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          {supplementaryRatios.map((ratio) => {
-            const standard = SUPPLEMENTARY_STANDARDS[ratio.feature];
-            return (
-              <article className={`rounded-[1.25rem] border p-4 ${ratioTone(ratio.feature, ratio.value)}`} key={ratio.feature}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-base font-semibold tracking-[-0.03em] text-white">{standard.label}</h4>
-                    <p className="mt-1 text-sm leading-6 text-[#d8d2c3]">{standard.interpretation}</p>
-                  </div>
-                  <p className="font-mono text-xl font-semibold text-[#ffb38f]">{ratio.value?.toFixed(4) ?? "--"}</p>
-                </div>
-                <p className="mt-3 rounded-2xl bg-black/25 p-3 text-xs leading-5 text-[#cfc5b1]">{standard.standard}</p>
-                <p className="mt-3 text-sm leading-6 text-[#bfb6a5]">{standard.analystRead}</p>
-                <p className="mt-2 text-[0.65rem] uppercase tracking-[0.18em] text-[#7f8794]">{standard.source}</p>
-              </article>
-            );
-          })}
-          {!supplementaryRatios.length ? <p className="rounded-[1.5rem] border border-white/10 bg-black/20 p-8 text-center text-[#9ba1ad] lg:col-span-2">Waiting for supplementary extracted ratios.</p> : null}
-        </div>
+
+      <div className="mt-6 divide-y divide-white/10 rounded-[1.5rem] border border-white/10 bg-black/20">
+        {rows.map((row) => (
+          <article className={`grid gap-4 p-4 lg:grid-cols-[220px_90px_minmax(0,1fr)] ${row.tone}`} key={row.key}>
+            <div>
+              <h3 className="text-base font-semibold tracking-[-0.03em] text-white">{row.label}</h3>
+              <p className="mt-1 text-[0.65rem] uppercase tracking-[0.18em] text-[#7f8794]">{row.standard.source}</p>
+            </div>
+            <p className="font-mono text-xl font-semibold text-[#ffb38f]">{row.value}</p>
+            <div>
+              <p className="text-sm leading-6 text-[#d8d2c3]">{row.standard.interpretation}</p>
+              <p className="mt-2 text-xs leading-5 text-[#aeb7c5]">{row.standard.standard}</p>
+              <p className="mt-2 text-xs leading-5 text-[#8f98a6]">{row.standard.analystRead}</p>
+            </div>
+          </article>
+        ))}
+        {!rows.length ? <p className="p-8 text-center text-[#9ba1ad]">Waiting for ratio evidence.</p> : null}
       </div>
     </section>
   );
@@ -503,18 +536,26 @@ function RiskSection({
 
 function GeneratedSections({ sections }: { sections: ReportSection[] }) {
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-[#0e1014]/92 p-5 shadow-xl shadow-black/35">
+    <section className="p-6 lg:p-8">
       <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#9ba1ad]">Analyst memo</p>
-      <div className="mt-5 space-y-4">
+      <div className="mt-4 divide-y divide-white/10">
         {sections.map((section) => (
-          <article className="rounded-[1.5rem] border border-white/10 bg-black/25 p-5" key={section.section_id}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-2xl font-semibold tracking-[-0.05em] text-white">{section.title}</h3>
-              <div className="flex flex-wrap gap-2">
-                {section.provenance.map((item) => <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] uppercase tracking-[0.18em] text-[#b9b1a2]" key={item}>{item}</span>)}
-              </div>
+          <article className="grid gap-5 py-7 lg:grid-cols-[260px_minmax(0,1fr)]" key={section.section_id}>
+            <h3 className="text-2xl font-semibold leading-tight tracking-[-0.05em] text-white">{section.title}</h3>
+            <div className="space-y-3">
+              {memoBlocks(section.markdown).map((block, index) => {
+                const bullet = block.match(/^(?:[*-]\s+)(.*)$/);
+                if (bullet) {
+                  return (
+                    <div className="flex gap-3 text-sm leading-7 text-[#ded6c5]" key={`${section.section_id}-${index}`}>
+                      <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ffb38f]" />
+                      <p>{bullet[1]}</p>
+                    </div>
+                  );
+                }
+                return <p className="text-sm leading-7 text-[#ded6c5]" key={`${section.section_id}-${index}`}>{block}</p>;
+              })}
             </div>
-            <p className="mt-4 whitespace-pre-line text-sm leading-7 text-[#ded6c5]">{markdownLite(section.markdown)}</p>
           </article>
         ))}
         {!sections.length ? <div className="rounded-[1.5rem] border border-white/10 bg-black/20 p-8 text-center text-[#9ba1ad]">Waiting for generated sections.</div> : null}
@@ -528,8 +569,8 @@ function ModelDecision({ finalStatement, modelOutput }: { finalStatement: string
     <section className="rounded-[2rem] border border-[#ff6b35]/25 bg-[#ff6b35]/10 p-5 shadow-xl shadow-black/35">
       <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#ffb38f]">Decision</p>
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <Metric label="Bucket" value={modelOutput?.decision_bucket ?? "--"} />
-        <Metric label="Audit score" value={modelOutput ? modelOutput.audit_score_0_100.toFixed(1) : "--"} />
+        <CompactMetric label="Bucket" value={modelOutput?.decision_bucket ?? "--"} />
+        <CompactMetric label="Benchmark" value={modelOutput ? modelOutput.audit_score_0_100.toFixed(1) : "--"} />
       </div>
       <p className="mt-5 text-sm leading-7 text-[#f5e6c8]">{finalStatement ?? "Final model statement will appear when scoring completes."}</p>
     </section>
@@ -541,12 +582,12 @@ function FinancialSnapshot({ extractions }: { extractions: ExtractedField[] }) {
     <section className="rounded-[2rem] border border-white/10 bg-[#101216]/92 p-5 shadow-xl shadow-black/35">
       <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#9ba1ad]">Financial snapshot</p>
       <div className="mt-5 grid gap-3">
-        <Metric label="Revenue" value={displayField(extractions, "revenue")} />
-        <Metric label="PAT" value={displayField(extractions, "pat")} />
-        <Metric label="EBITDA" value={displayField(extractions, "ebitda")} />
-        <Metric label="CFO" value={displayField(extractions, "cfo")} />
-        <Metric label="Net cash change" value={displayField(extractions, "net_cash_change")} />
-        <Metric label="Contingent liabilities" value={displayField(extractions, "contingent_liabilities_amount")} />
+        <CompactMetric label="Revenue" value={displayField(extractions, "revenue")} />
+        <CompactMetric label="PAT" value={displayField(extractions, "pat")} />
+        <CompactMetric label="EBITDA" value={displayField(extractions, "ebitda")} />
+        <CompactMetric label="CFO" value={displayField(extractions, "cfo")} />
+        <CompactMetric label="Net cash change" value={displayField(extractions, "net_cash_change")} />
+        <CompactMetric label="Contingent liabilities" value={displayField(extractions, "contingent_liabilities_amount")} />
       </div>
     </section>
   );
@@ -564,11 +605,11 @@ function ValidationPanel({ result }: { result: ReportJobResult | null }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function CompactMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/25 p-4">
-      <p className="text-[0.65rem] uppercase tracking-[0.24em] text-[#9ba1ad]">{label}</p>
-      <p className="mt-2 break-words font-mono text-lg font-semibold text-white">{value}</p>
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+      <p className="text-[0.6rem] uppercase tracking-[0.22em] text-[#9ba1ad]">{label}</p>
+      <p className="mt-1 break-words font-mono text-sm font-semibold text-white">{value}</p>
     </div>
   );
 }

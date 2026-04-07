@@ -2,6 +2,7 @@ import type {
   CompaniesPayload,
   CompanyDetailPayload,
   DecisioningSummary,
+  ReportJobsPayload,
   ReportJobResult,
   ReportStatusResponse,
   ReportUploadResponse,
@@ -36,6 +37,11 @@ export async function uploadReport(formData: FormData) {
     body: formData,
   });
   return readJson<ReportUploadResponse>(response);
+}
+
+export async function fetchReportJobs(signal?: AbortSignal) {
+  const response = await fetch("/api/reports?limit=50", { cache: "no-store", signal });
+  return readJson<ReportJobsPayload>(response);
 }
 
 export async function fetchReportStatus(jobId: string, signal?: AbortSignal) {

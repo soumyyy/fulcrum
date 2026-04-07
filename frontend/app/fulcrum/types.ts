@@ -74,6 +74,33 @@ export type ReportUploadResponse = {
   result_url: string;
 };
 
+export type ReportJobSummary = {
+  job_id: string;
+  status: ReportJobStatus;
+  progress_pct: number;
+  current_stage: string | null;
+  message: string | null;
+  created_at: string;
+  updated_at: string | null;
+  completed_at: string | null;
+  upload_filename: string | null;
+  company_name: string | null;
+  cin: string | null;
+  sector: string | null;
+  financial_year: number | null;
+  basis_preference: string | null;
+  decision_bucket: string | null;
+  engine_score_0_100: number | null;
+  engine_risk_band: string | null;
+  model_alignment: string | null;
+  has_result: boolean;
+};
+
+export type ReportJobsPayload = StatusPayload<{
+  count: number;
+  results: ReportJobSummary[];
+}>;
+
 export type ReportJobStatus =
   | "queued"
   | "parsing"
@@ -170,6 +197,15 @@ export type ModelOutput = {
   top_drivers: string[];
 };
 
+export type ReportingContext = {
+  source_currency?: string | null;
+  source_scale_detected?: string | null;
+  source_unit_basis?: string | null;
+  normalized_monetary_unit?: string | null;
+  unit_confidence?: string | null;
+  note?: string | null;
+};
+
 export type ReportJobResult = {
   job_id: string;
   status: ReportJobStatus;
@@ -180,6 +216,7 @@ export type ReportJobResult = {
     financial_year: number | null;
     basis_preference: string;
   };
+  reporting_context?: ReportingContext;
   extractions: ExtractedField[];
   validation_issues: ValidationIssue[];
   features: FeatureValue[];

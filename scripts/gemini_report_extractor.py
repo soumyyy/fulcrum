@@ -56,7 +56,10 @@ Return ONLY valid JSON. Do not include markdown.
 
 Use the standalone financial statements by default. If standalone is unavailable, use consolidated and set basis accordingly.
 Extract latest financial year values only, unless a field explicitly requires an auditor/shareholding note.
+Detect the monetary presentation basis used by the annual report, such as Rs. crore, Rs. lakh, Rs. million, Rs. thousand, or absolute INR.
+Set document.scale_detected to the exact basis phrase when available.
 Normalize all monetary normalized_value fields to INR crore. Preserve the raw value text in value.
+For every monetary field, set unit/scale to the source reporting basis used in the annual report, not the normalized basis.
 If a value is not found, return null. Do not infer numbers. Do not calculate ratios.
 Use negative signs for cash outflows when the report presents them as outflows.
 For capex, use purchase of property, plant and equipment / fixed assets from cash flow, negative if cash outflow.
@@ -72,7 +75,7 @@ Return this exact JSON shape:
     "sector": string | null,
     "basis": "standalone" | "consolidated" | "unknown",
     "currency": "INR" | null,
-    "scale_detected": string | null,
+      "scale_detected": string | null,
     "warnings": [string]
   },
   "fields": [
@@ -261,6 +264,8 @@ Use only the structured input provided by the backend. Do not invent facts, peer
 Be direct and analytical. The audience is an expert risk analyst.
 Mention ratio values where relevant, and distinguish model-derived conclusions from extracted facts.
 If extraction confidence or sector detection is weak, say so.
+Mention the monetary basis explicitly: distinguish source report basis from Fulcrum's INR crore normalization.
+Do not mention internal model implementation names such as algorithm names, package names, or model artifact names. Refer only to "primary risk score" and "benchmark score".
 
 Return this exact JSON shape:
 {
@@ -278,8 +283,8 @@ Return this exact JSON shape:
 }
 
 Required sections:
-- company_profile: identify company, reporting year, basis, sector status, scale, revenue, asset base, borrowings, equity, and main caveats.
-- model_verdict: engine score, audit baseline score, decision bucket, model agreement/disagreement, and what the score should be used for.
+- company_profile: identify company, reporting year, reporting basis, monetary unit/scale, sector status, revenue, asset base, borrowings, equity, and main caveats.
+- model_verdict: primary risk score, benchmark score, decision bucket, score agreement/disagreement, and what the score should be used for.
 - balance_sheet_risk: debt/assets, borrowings, equity buffer, retained earnings/assets, and whether leverage looks structurally risky.
 - liquidity_cash_flow: current ratio, cash ratio, working capital/assets, CFO, CFO/assets, CFO/EBITDA, net cash change/assets, and EBITDA/interest.
 - profitability_asset_quality: EBITDA margin, PAT margin, ROA, revenue, PAT, EBITDA, and whether profitability offsets the risk signals.
