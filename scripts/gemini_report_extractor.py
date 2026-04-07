@@ -60,6 +60,8 @@ Normalize all monetary normalized_value fields to INR crore. Preserve the raw va
 If a value is not found, return null. Do not infer numbers. Do not calculate ratios.
 Use negative signs for cash outflows when the report presents them as outflows.
 For capex, use purchase of property, plant and equipment / fixed assets from cash flow, negative if cash outflow.
+Infer sector from the annual report's business overview, revenue segments, director report, and company description.
+Use the closest label from this taxonomy where possible: Cement, Engineering / Manufacturing, FMCG / Foods, FMCG / Foods / Agro, Gems & Jewellery, IT / Services, Infrastructure, Logistics, Media, Mining, NBFC / Leasing, Oil & Gas, Oil & Gas / Energy, Pharma, Real Estate, Shipbuilding, Steel & Metals, Textiles, Travel / Aviation, Travel / Aviation / Hospitality, Travel / Hospitality.
 
 Return this exact JSON shape:
 {
@@ -249,6 +251,95 @@ def extract_annual_report_with_gemini(
         }
     )
     return payload
+
+
+REPORT_SYNTHESIS_PROMPT = """
+You are writing an expert credit-risk analyst memo from validated annual-report facts.
+Return ONLY valid JSON. Do not include markdown fences.
+
+Use only the structured input provided by the backend. Do not invent facts, peer data, dates, covenant terms, ratings, or auditor observations.
+Be direct and analytical. The audience is an expert risk analyst.
+Mention ratio values where relevant, and distinguish model-derived conclusions from extracted facts.
+If extraction confidence or sector detection is weak, say so.
+
+Return this exact JSON shape:
+{
+  "sections": [
+    {
+      "section_id": "company_profile" | "model_verdict" | "balance_sheet_risk" | "liquidity_cash_flow" | "profitability_asset_quality" | "governance_audit" | "key_red_flags" | "what_could_change_view" | "analyst_conclusion",
+      "title": string,
+      "markdown": string,
+      "warnings": [string]
+    }
+  ],
+  "final_statement": string,
+  "confidence_statement": string,
+  "warnings": [string]
+}
+
+Required sections:
+- company_profile: identify company, reporting year, basis, sector status, scale, revenue, asset base, borrowings, equity, and main caveats.
+- model_verdict: engine score, audit baseline score, decision bucket, model agreement/disagreement, and what the score should be used for.
+- balance_sheet_risk: debt/assets, borrowings, equity buffer, retained earnings/assets, and whether leverage looks structurally risky.
+- liquidity_cash_flow: current ratio, cash ratio, working capital/assets, CFO, CFO/assets, CFO/EBITDA, net cash change/assets, and EBITDA/interest.
+- profitability_asset_quality: EBITDA margin, PAT margin, ROA, revenue, PAT, EBITDA, and whether profitability offsets the risk signals.
+- governance_audit: audit opinion, auditor, emphasis/going-concern/fraud flags, promoter holding, contingent liabilities where available.
+- key_red_flags: the 3-6 most important risks, each tied to a specific extracted fact, ratio, or model output.
+- what_could_change_view: what an analyst should verify next, including missing evidence, sector uncertainty, cash conversion, audit qualifications, and liquidity quality.
+- analyst_conclusion: final action-oriented statement for a risk-review queue.
+
+Make the memo detailed enough to be useful without opening the ratio table:
+- discuss asset scale, revenue, borrowings, equity, PAT, EBITDA, CFO, and net cash movement when present
+- compare key ratios to the provided standards
+- mention whether liquidity appears adequate or weak
+- mention whether cash conversion supports or contradicts accounting profitability
+- mention sector detection confidence and any model caveat
+- use bullets where it improves scanability
+- do not call the company a defaulter unless the provided model or source facts explicitly say so
+- do not overstate sector percentiles when the benchmark context says they are computed from upload scope only
+""".strip()
+
+
+def generate_report_sections_with_gemini(
+    structured_context: dict[str, Any],
+    *,
+    model: str | None = None,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Generate grounded analyst sections from already-extracted and scored facts."""
+    api_key = _require_api_key()
+
+    from google import genai
+    from google.genai import types
+
+    def emit(message: str) -> None:
+        if progress_callback is not None:
+            progress_callback(message)
+
+    timeout_ms = int(os.environ.get("GEMINI_HTTP_TIMEOUT_MS", "900000"))
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
+    model_name = model or os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    payload = {
+        "instructions": REPORT_SYNTHESIS_PROMPT,
+        "structured_context": structured_context,
+    }
+    emit(f"Requesting grounded analyst report generation from {model_name}.")
+    response = client.models.generate_content(
+        model=model_name,
+        contents=json.dumps(payload, ensure_ascii=False),
+        config=types.GenerateContentConfig(
+            temperature=0.15,
+            response_mime_type="application/json",
+        ),
+    )
+    text = getattr(response, "text", None)
+    if not text:
+        raise RuntimeError("Gemini returned an empty report synthesis response")
+    emit(f"Gemini returned analyst report response with {len(text)} characters.")
+    result = _coerce_json(text)
+    result.setdefault("_meta", {})
+    result["_meta"].update({"model": model_name})
+    return result
 
 
 def extracted_fields_by_name(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:

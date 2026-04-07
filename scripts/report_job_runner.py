@@ -23,6 +23,50 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 REPORT_JOBS_DIR = PROJECT_ROOT / "data" / "report_jobs"
+KNOWN_SECTORS = {
+    "Cement",
+    "Engineering / Manufacturing",
+    "FMCG / Foods",
+    "FMCG / Foods / Agro",
+    "Gems & Jewellery",
+    "IT / Services",
+    "Infrastructure",
+    "Logistics",
+    "Media",
+    "Mining",
+    "NBFC / Leasing",
+    "Oil & Gas",
+    "Oil & Gas / Energy",
+    "Pharma",
+    "Real Estate",
+    "Shipbuilding",
+    "Steel & Metals",
+    "Textiles",
+    "Travel / Aviation",
+    "Travel / Aviation / Hospitality",
+    "Travel / Hospitality",
+}
+KEYWORD_SECTORS = [
+    (("cement",), "Cement"),
+    (("pharma", "laboratories", "drug", "healthcare"), "Pharma"),
+    (("steel", "metal", "aluminium", "aluminum"), "Steel & Metals"),
+    (("jewel", "diamond", "gems"), "Gems & Jewellery"),
+    (("hotel", "hospitality", "resort"), "Travel / Hospitality"),
+    (("aviation", "airline", "airways", "flight"), "Travel / Aviation"),
+    (("travel", "tour", "holiday"), "Travel / Aviation / Hospitality"),
+    (("finance", "leasing", "credit", "capital", "nbfc"), "NBFC / Leasing"),
+    (("infra", "construction", "project", "engineering procurement"), "Infrastructure"),
+    (("oil", "gas", "petroleum", "energy"), "Oil & Gas / Energy"),
+    (("mining", "coal", "minerals"), "Mining"),
+    (("logistics", "transport", "express", "shipping"), "Logistics"),
+    (("shipyard", "shipbuilding"), "Shipbuilding"),
+    (("textile", "fabric", "garment"), "Textiles"),
+    (("media", "publication", "broadcast"), "Media"),
+    (("food", "fmcg", "sugar", "agro", "consumer"), "FMCG / Foods / Agro"),
+    (("software", "technology", "services", "it "), "IT / Services"),
+    (("manufacturing", "equipment", "industrial", "electrical"), "Engineering / Manufacturing"),
+    (("real estate", "developer", "properties"), "Real Estate"),
+]
 
 
 def utc_now() -> str:
@@ -350,6 +394,31 @@ def _field_text(fields: dict[str, dict[str, Any]], field: str) -> str | None:
     return text or None
 
 
+def _keyword_sector(company_name: str | None, gemini_sector: str | None) -> str | None:
+    haystack = f"{company_name or ''} {gemini_sector or ''}".lower()
+    for keywords, sector in KEYWORD_SECTORS:
+        if any(keyword in haystack for keyword in keywords):
+            return sector
+    return None
+
+
+def _resolve_sector(company_name: str | None, cin: str | None, gemini_sector: str | None) -> tuple[str, str, float]:
+    cleaned_gemini_sector = (gemini_sector or "").strip()
+    if cleaned_gemini_sector and cleaned_gemini_sector.lower() != "unknown":
+        if cleaned_gemini_sector in KNOWN_SECTORS:
+            return cleaned_gemini_sector, "gemini_taxonomy", 0.78
+        keyword = _keyword_sector(company_name, cleaned_gemini_sector)
+        if keyword:
+            return keyword, "keyword_from_gemini_sector", 0.70
+        return cleaned_gemini_sector, "gemini_free_text", 0.60
+
+    keyword = _keyword_sector(company_name, None)
+    if keyword:
+        return keyword, "keyword_from_company_name", 0.58
+
+    return "Unknown", "unresolved", 0.0
+
+
 def _contract_extractions(job_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
     from gemini_report_extractor import extracted_fields_by_name
 
@@ -401,6 +470,21 @@ def _validation_issues(payload: dict[str, Any], job_id: str) -> list[dict[str, A
             }
         )
 
+    sector_source = document.get("_fulcrum_sector_source")
+    if sector_source:
+        severity = "info" if str(sector_source) in {"gemini_taxonomy", "keyword_from_gemini_sector"} else "watch"
+        issues.append(
+            {
+                "field": "sector",
+                "severity": severity,
+                "message": (
+                    f"Sector resolved as {document.get('sector') or document.get('_fulcrum_gemini_sector') or 'Unknown'} "
+                    f"using {sector_source}; confidence={document.get('_fulcrum_sector_confidence', 0)}."
+                ),
+                "source_refs": [],
+            }
+        )
+
     if not issues:
         issues.append(
             {
@@ -442,7 +526,12 @@ def _build_raw_dataframe(job: dict[str, Any], extraction_payload: dict[str, Any]
 
     company_name = doc_text("company_name") or job_company.get("company_name") or "Uploaded Company"
     cin = doc_text("cin") or job_company.get("cin") or f"UNKNOWN_{job['job_id']}"
-    sector = doc_text("sector") or job_company.get("sector") or "Unknown"
+    gemini_sector = doc_text("sector") or job_company.get("sector")
+    sector, sector_source, sector_confidence = _resolve_sector(company_name, cin, gemini_sector)
+    document["sector"] = sector
+    document["_fulcrum_sector_source"] = sector_source
+    document["_fulcrum_sector_confidence"] = sector_confidence
+    document["_fulcrum_gemini_sector"] = gemini_sector
 
     financial_year = numeric_or_none(document.get("financial_year"))
     if financial_year is None:
@@ -543,7 +632,280 @@ def _feature_values(raw_df) -> list[dict[str, Any]]:
     return out
 
 
-def _build_scored_result(job: dict[str, Any], extraction_payload: dict[str, Any]) -> dict[str, Any]:
+def _extraction_numeric(extractions: list[dict[str, Any]], field: str) -> float | None:
+    from gemini_report_extractor import numeric_or_none
+
+    for item in extractions:
+        if item.get("field") != field:
+            continue
+        value = item.get("normalized_value")
+        if value is None:
+            value = item.get("value")
+        return numeric_or_none(value)
+    return None
+
+
+def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator in {None, 0}:
+        return None
+    return float(numerator) / float(denominator)
+
+
+def _supplementary_ratios_from_extractions(extractions: list[dict[str, Any]]) -> dict[str, float | None]:
+    current_assets = _extraction_numeric(extractions, "current_assets")
+    current_liabilities = _extraction_numeric(extractions, "current_liabilities")
+    cash = _extraction_numeric(extractions, "cash_and_equivalents")
+    total_assets = _extraction_numeric(extractions, "total_assets")
+    contingent = _extraction_numeric(extractions, "contingent_liabilities_amount")
+    ebitda = _extraction_numeric(extractions, "ebitda")
+    interest = _extraction_numeric(extractions, "interest_expense")
+
+    working_capital = None
+    if current_assets is not None and current_liabilities is not None:
+        working_capital = current_assets - current_liabilities
+
+    return {
+        "current_ratio": _safe_ratio(current_assets, current_liabilities),
+        "cash_ratio": _safe_ratio(cash, current_liabilities),
+        "working_capital_to_assets": _safe_ratio(working_capital, total_assets),
+        "contingent_liabilities_to_assets": _safe_ratio(contingent, total_assets),
+        "ebitda_to_interest": _safe_ratio(ebitda, interest),
+    }
+
+
+def _field_source_refs(extractions: list[dict[str, Any]], fields: set[str]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    seen: set[tuple[str, int | None, str | None]] = set()
+    for item in extractions:
+        if item.get("field") not in fields:
+            continue
+        for ref in item.get("source_refs", []) or []:
+            key = (str(item.get("field")), ref.get("page"), ref.get("snippet"))
+            if key in seen:
+                continue
+            seen.add(key)
+            refs.append(ref)
+    return refs
+
+
+def _field_snapshot(extractions: list[dict[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for item in extractions:
+        field = item.get("field")
+        value = item.get("normalized_value") if item.get("normalized_value") is not None else item.get("value")
+        if field:
+            out[str(field)] = value
+    return out
+
+
+def _risk_observations(features: list[dict[str, Any]], supplementary: dict[str, float | None], model_output: dict[str, Any]) -> list[str]:
+    by_name = {str(item.get("feature")): item.get("value") for item in features}
+    observations: list[str] = []
+
+    debt_to_assets = by_name.get("debt_to_assets")
+    if isinstance(debt_to_assets, (int, float)):
+        if debt_to_assets > 0.5:
+            observations.append(f"Debt/assets is elevated at {debt_to_assets:.2f}; leverage should be reviewed against sector peers.")
+        else:
+            observations.append(f"Debt/assets is {debt_to_assets:.2f}, below the internal 0.50 caution line.")
+
+    cfo_to_ebitda = by_name.get("cfo_to_ebitda")
+    if isinstance(cfo_to_ebitda, (int, float)):
+        if cfo_to_ebitda < 0.5:
+            observations.append(f"CFO/EBITDA is weak at {cfo_to_ebitda:.2f}; cash conversion is materially below the near-1.0 internal convention.")
+        else:
+            observations.append(f"CFO/EBITDA is {cfo_to_ebitda:.2f}; assess whether working capital explains the cash conversion level.")
+
+    current_ratio = supplementary.get("current_ratio")
+    if isinstance(current_ratio, (int, float)):
+        if current_ratio < 1.0:
+            observations.append(f"Current ratio is below 1.0 at {current_ratio:.2f}; near-term liquidity coverage is weak.")
+        elif current_ratio < 1.5:
+            observations.append(f"Current ratio is {current_ratio:.2f}; liquidity is positive but below the common 1.5-3.0 healthy range.")
+        else:
+            observations.append(f"Current ratio is {current_ratio:.2f}, within or above the common healthy range.")
+
+    ebitda_to_interest = supplementary.get("ebitda_to_interest")
+    if isinstance(ebitda_to_interest, (int, float)):
+        if ebitda_to_interest < 1.5:
+            observations.append(f"EBITDA/interest is weak at {ebitda_to_interest:.2f}.")
+        elif ebitda_to_interest < 2.0:
+            observations.append(f"EBITDA/interest is {ebitda_to_interest:.2f}, below the more comfortable 2.0x line.")
+        else:
+            observations.append(f"EBITDA/interest is {ebitda_to_interest:.2f}, above the 2.0x comfort line.")
+
+    observations.append(
+        f"Model bucket is {model_output.get('decision_bucket')} with engine score {float(model_output.get('engine_score_0_100', 0.0)):.2f}/100 and audit score {float(model_output.get('audit_score_0_100', 0.0)):.2f}/100."
+    )
+    return observations
+
+
+def _compact_extractions(extractions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    fields = {
+        "revenue",
+        "pat",
+        "ebitda",
+        "total_assets",
+        "total_borrowings",
+        "total_equity",
+        "retained_earnings",
+        "cfo",
+        "net_cash_change",
+        "current_assets",
+        "current_liabilities",
+        "cash_and_equivalents",
+        "contingent_liabilities_amount",
+        "opinion_type",
+        "auditor_name",
+        "promoter_holding_pct",
+        "emphasis_of_matter",
+        "going_concern_uncertainty",
+        "fraud_reported",
+    }
+    compact: list[dict[str, Any]] = []
+    for item in extractions:
+        if item.get("field") not in fields:
+            continue
+        compact.append(
+            {
+                "field": item.get("field"),
+                "value": item.get("normalized_value") if item.get("normalized_value") is not None else item.get("value"),
+                "unit": item.get("unit"),
+                "basis": item.get("basis"),
+                "confidence": item.get("confidence"),
+                "source": (item.get("source_refs") or [{}])[0].get("snippet") if item.get("source_refs") else None,
+            }
+        )
+    return compact
+
+
+def _fallback_sections(company: dict[str, Any], model_output: dict[str, Any], features: list[dict[str, Any]], latest_score: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "section_id": "risk_snapshot",
+            "kind": "risk_snapshot",
+            "title": "Risk Snapshot",
+            "status": "complete",
+            "provenance": ["model_derived", "deterministic"],
+            "markdown": (
+                f"{company['company_name']} scored {model_output['engine_score_0_100']:.2f}/100 "
+                f"with decision bucket {model_output['decision_bucket']}. "
+                f"Audit baseline score: {model_output['audit_score_0_100']:.2f}/100."
+            ),
+            "data": model_output,
+            "source_refs": [],
+            "warnings": [],
+        },
+        {
+            "section_id": "financial_stress",
+            "kind": "financial_stress",
+            "title": "Financial Stress Indicators",
+            "status": "complete",
+            "provenance": ["deterministic"],
+            "markdown": "Tier 1A ratios were computed from Gemini-extracted annual-report fields and scored through the existing Fulcrum model stack.",
+            "data": {"features": features},
+            "source_refs": [],
+            "warnings": [],
+        },
+        {
+            "section_id": "analyst_conclusion",
+            "kind": "analyst_conclusion",
+            "title": "Analyst Conclusion",
+            "status": "complete",
+            "provenance": ["model_derived", "source_grounded"],
+            "markdown": str(latest_score.get("support_summary", "Review extracted fields and model output before decisioning.")),
+            "data": {"rule_flags_triggered": latest_score.get("rule_flags_triggered")},
+            "source_refs": [],
+            "warnings": [],
+        },
+    ]
+
+
+def _apply_llm_synthesis(result: dict[str, Any], latest_score: dict[str, Any] | None = None, *, progress_callback=None) -> dict[str, Any]:
+    from gemini_report_extractor import generate_report_sections_with_gemini
+
+    score_context = latest_score or {}
+    supplementary = _supplementary_ratios_from_extractions(result["extractions"])
+    context = {
+        "company": result["company"],
+        "model_output": result["model_output"],
+        "benchmark_output": result["benchmark_output"],
+        "features": result["features"],
+        "supplementary_ratios": supplementary,
+        "field_snapshot": _field_snapshot(result["extractions"]),
+        "risk_observations": _risk_observations(result["features"], supplementary, result["model_output"]),
+        "extractions": _compact_extractions(result["extractions"]),
+        "validation_issues": result["validation_issues"],
+        "support_summary": score_context.get("support_summary") or result.get("decision", {}).get("final_statement"),
+        "rule_flags_triggered": score_context.get("rule_flags_triggered"),
+        "ratio_standards": {
+            "current_ratio": "1.5-3.0 often healthy; below 1.0 can indicate liquidity pressure.",
+            "cash_ratio": "0.5-1.0 often acceptable by sector; below 0.5 can be risky.",
+            "ebitda_to_interest": "2.0+ more comfortable; below 1.5 weak.",
+            "debt_to_assets": "Above 1.0 means debt exceeds assets; above 0.5 needs peer check.",
+            "roa": "5% often acceptable and 20%+ very strong, but industry matters.",
+            "cfo_to_ebitda": "Internal convention: near 1.0 implies strong cash conversion.",
+        },
+    }
+    synthesis = generate_report_sections_with_gemini(context, progress_callback=progress_callback)
+    allowed_kinds = {
+        "company_profile",
+        "model_verdict",
+        "balance_sheet_risk",
+        "liquidity_cash_flow",
+        "profitability_asset_quality",
+        "governance_audit",
+        "key_red_flags",
+        "what_could_change_view",
+        "analyst_conclusion",
+    }
+    sections: list[dict[str, Any]] = []
+    for raw_section in synthesis.get("sections", []) or []:
+        if not isinstance(raw_section, dict):
+            continue
+        section_id = str(raw_section.get("section_id") or "").strip()
+        if section_id not in allowed_kinds:
+            continue
+        section_ref_fields = {
+            "company_profile": {"company_name", "cin", "financial_year", "revenue", "total_assets", "total_borrowings", "total_equity"},
+            "model_verdict": {"revenue", "pat", "total_assets", "total_borrowings"},
+            "balance_sheet_risk": {"total_assets", "total_borrowings", "total_equity", "retained_earnings"},
+            "liquidity_cash_flow": {"cfo", "net_cash_change", "current_assets", "current_liabilities", "cash_and_equivalents", "interest_expense", "ebitda"},
+            "profitability_asset_quality": {"revenue", "pat", "ebitda", "total_assets"},
+            "governance_audit": {"opinion_type", "auditor_name", "promoter_holding_pct", "contingent_liabilities_amount", "emphasis_of_matter", "going_concern_uncertainty", "fraud_reported"},
+            "key_red_flags": {"opinion_type", "auditor_name", "cfo", "ebitda", "current_assets", "current_liabilities", "contingent_liabilities_amount", "going_concern_uncertainty"},
+            "what_could_change_view": {"cfo", "ebitda", "current_assets", "current_liabilities", "opinion_type", "contingent_liabilities_amount"},
+            "analyst_conclusion": {"revenue", "pat", "ebitda", "cfo", "total_assets", "total_borrowings", "contingent_liabilities_amount"},
+        }.get(section_id, set())
+        sections.append(
+            {
+                "section_id": section_id,
+                "kind": section_id,
+                "title": str(raw_section.get("title") or section_id.replace("_", " ").title()),
+                "status": "complete",
+                "provenance": ["llm_synthesized", "model_derived", "source_grounded"],
+                "markdown": str(raw_section.get("markdown") or ""),
+                "data": {"structured_context": context if section_id == "risk_snapshot" else {}},
+                "source_refs": _field_source_refs(result["extractions"], section_ref_fields),
+                "warnings": list(raw_section.get("warnings") or []),
+            }
+        )
+    if sections:
+        result["sections"] = sections
+
+    final_statement = str(synthesis.get("final_statement") or "").strip()
+    confidence_statement = str(synthesis.get("confidence_statement") or "").strip()
+    warnings = [str(item) for item in synthesis.get("warnings", []) or [] if str(item).strip()]
+    if final_statement and result.get("decision"):
+        result["decision"]["final_statement"] = final_statement
+    if confidence_statement and result.get("decision"):
+        result["decision"]["confidence_statement"] = confidence_statement
+    if warnings and result.get("decision"):
+        result["decision"]["warnings"] = list(dict.fromkeys([*result["decision"].get("warnings", []), *warnings]))
+    return result
+
+
+def _build_scored_result(job: dict[str, Any], extraction_payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     raw_df = _build_raw_dataframe(job, extraction_payload)
     year_score, latest_score = _score_extracted_dataframe(raw_df)
     job_id = str(job["job_id"])
@@ -590,45 +952,7 @@ def _build_scored_result(job: dict[str, Any], extraction_payload: dict[str, Any]
     extractions = _contract_extractions(job_id, extraction_payload)
     validation_issues = _validation_issues(extraction_payload, job_id)
     features = _feature_values(raw_df)
-    sections = [
-        {
-            "section_id": "risk_snapshot",
-            "kind": "risk_snapshot",
-            "title": "Risk Snapshot",
-            "status": "complete",
-            "provenance": ["model_derived", "deterministic"],
-            "markdown": (
-                f"{company['company_name']} scored {model_output['engine_score_0_100']:.2f}/100 "
-                f"with decision bucket {model_output['decision_bucket']}. "
-                f"Audit baseline score: {model_output['audit_score_0_100']:.2f}/100."
-            ),
-            "data": model_output,
-            "source_refs": [],
-            "warnings": [],
-        },
-        {
-            "section_id": "financial_stress",
-            "kind": "financial_stress",
-            "title": "Financial Stress Indicators",
-            "status": "complete",
-            "provenance": ["deterministic"],
-            "markdown": "Tier 1A ratios were computed from Gemini-extracted annual-report fields and scored through the existing Fulcrum model stack.",
-            "data": {"features": features},
-            "source_refs": [],
-            "warnings": [],
-        },
-        {
-            "section_id": "analyst_conclusion",
-            "kind": "analyst_conclusion",
-            "title": "Analyst Conclusion",
-            "status": "complete",
-            "provenance": ["model_derived", "source_grounded"],
-            "markdown": str(latest_score.get("support_summary", "Review extracted fields and model output before decisioning.")),
-            "data": {"rule_flags_triggered": latest_score.get("rule_flags_triggered")},
-            "source_refs": [],
-            "warnings": [],
-        },
-    ]
+    sections = _fallback_sections(company, model_output, features, latest_score)
     decision = {
         "job_id": job_id,
         "company": company,
@@ -639,7 +963,7 @@ def _build_scored_result(job: dict[str, Any], extraction_payload: dict[str, Any]
         "confidence_statement": "Confidence depends on Gemini extraction confidence and validation notes; review source snippets before relying on the score.",
         "warnings": [issue["message"] for issue in validation_issues if issue.get("severity") in {"watch", "warning", "critical"}],
     }
-    return {
+    result = {
         "job_id": job_id,
         "status": "completed",
         "company": company,
@@ -651,6 +975,7 @@ def _build_scored_result(job: dict[str, Any], extraction_payload: dict[str, Any]
         "sections": sections,
         "decision": decision,
     }
+    return result, latest_score
 
 
 def run_report_job(job_id: str) -> dict[str, Any]:
@@ -687,9 +1012,33 @@ def run_report_job(job_id: str) -> dict[str, Any]:
         _feature_values(raw_df)
 
         update_job(job_id, status="scoring", progress_pct=82, current_stage="scoring_models", message="Running engine and audit models.")
-        result = _build_scored_result(job, extraction_payload)
+        result, latest_score = _build_scored_result(job, extraction_payload)
 
-        update_job(job_id, status="generating", progress_pct=92, current_stage="assembling_report", message="Assembling model-derived report package.")
+        update_job(job_id, status="generating", progress_pct=92, current_stage="generating_analyst_report", message="Generating grounded analyst report.")
+        try:
+            result = _apply_llm_synthesis(
+                result,
+                latest_score,
+                progress_callback=lambda message: (
+                    log_job(job_id, message),
+                    append_event(job_id, "job.progress", {"current_stage": "generating_analyst_report", "message": message}),
+                ),
+            )
+        except Exception as synthesis_exc:  # noqa: BLE001
+            message = f"LLM report synthesis failed; using deterministic fallback sections. {synthesis_exc}"
+            log_job(job_id, message)
+            result.setdefault("validation_issues", []).append(
+                {
+                    "field": None,
+                    "severity": "watch",
+                    "message": message,
+                    "source_refs": [],
+                }
+            )
+            if result.get("decision"):
+                result["decision"].setdefault("warnings", []).append(message)
+
+        update_job(job_id, status="generating", progress_pct=96, current_stage="assembling_report", message="Assembling final report package.")
         write_json(result_json_path(job_id), result)
         log_job(job_id, f"wrote report result artifact: {result_json_path(job_id)}")
         for section in result["sections"]:
