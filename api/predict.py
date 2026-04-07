@@ -8,8 +8,9 @@ import sys
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -24,6 +25,20 @@ from scoring_utils import (  # noqa: E402
     score_single_company,
 )
 from risk_decision import load_rules  # noqa: E402
+from report_job_runner import (  # noqa: E402
+    create_job,
+    delete_job,
+    read_events,
+    read_job,
+    read_result,
+    run_stub_report_job,
+    save_upload_bytes,
+)
+from api.report_contract import (  # noqa: E402
+    ReportJobResult,
+    ReportJobStatusResponse,
+    ReportUploadResponse,
+)
 
 
 app = FastAPI(title="Fulcrum Prediction API", version="v2")
@@ -271,6 +286,10 @@ def root() -> dict[str, Any]:
             "/decisioning/companies",
             "/decisioning/companies/{cin}",
             "/decisioning/report",
+            "/reports/upload",
+            "/reports/{job_id}/status",
+            "/reports/{job_id}/events",
+            "/reports/{job_id}",
             "/score-company-csv",
             "/score-company-json",
         ],
@@ -398,6 +417,155 @@ def decisioning_report() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "path": str(DECISIONING_REPORT), "markdown": text}
+
+
+@app.post("/reports/upload", status_code=202, response_model=ReportUploadResponse)
+async def upload_annual_report(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    company_name: str | None = Form(default=None),
+    cin: str | None = Form(default=None),
+    sector: str | None = Form(default=None),
+    financial_year: int | None = Form(default=None),
+    basis_preference: str = Form(default="standalone"),
+) -> ReportUploadResponse:
+    filename = file.filename or "annual_report.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
+    if basis_preference not in {"standalone", "consolidated", "auto"}:
+        raise HTTPException(status_code=400, detail="basis_preference must be standalone, consolidated, or auto")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded PDF is empty")
+
+    try:
+        job, destination = create_job(
+            upload_filename=filename,
+            company_name=company_name,
+            cin=cin,
+            sector=sector,
+            financial_year=financial_year,
+            basis_preference=basis_preference,
+        )
+        save_upload_bytes(destination, content)
+        background_tasks.add_task(run_stub_report_job, job["job_id"])
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    job_id = str(job["job_id"])
+    return ReportUploadResponse(
+        job_id=job_id,
+        status="queued",
+        created_at=str(job["created_at"]),
+        upload_filename=filename,
+        status_url=f"/reports/{job_id}/status",
+        events_url=f"/reports/{job_id}/events",
+        result_url=f"/reports/{job_id}",
+    )
+
+
+@app.get("/reports/{job_id}/status", response_model=ReportJobStatusResponse)
+def report_job_status(job_id: str) -> ReportJobStatusResponse:
+    try:
+        job = read_job(job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Report job '{job_id}' not found") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ReportJobStatusResponse(
+        job_id=str(job["job_id"]),
+        status=job["status"],
+        progress_pct=int(job["progress_pct"]),
+        current_stage=str(job["current_stage"]),
+        message=job.get("message"),
+        created_at=str(job["created_at"]),
+        updated_at=str(job["updated_at"]),
+        completed_at=job.get("completed_at"),
+        error=job.get("error"),
+        warnings=list(job.get("warnings", [])),
+    )
+
+
+@app.get("/reports/{job_id}/events")
+def report_job_events(job_id: str) -> StreamingResponse:
+    try:
+        events = read_events(job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Report job '{job_id}' not found") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def event_stream():
+        for event in events:
+            event_name = str(event.get("event", "message"))
+            yield f"event: {event_name}\n"
+            yield "data: " + json.dumps(event) + "\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/reports/{job_id}", response_model=ReportJobResult)
+def report_job_result(job_id: str) -> ReportJobResult:
+    try:
+        job = read_job(job_id)
+        if job["status"] != "completed":
+            raise HTTPException(status_code=409, detail=f"Report job is not complete: {job['status']}")
+        result = read_result(job_id)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Report job '{job_id}' not found") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ReportJobResult(**result)
+
+
+@app.get("/reports/{job_id}/sections")
+def report_job_sections(job_id: str) -> dict[str, Any]:
+    result = report_job_result(job_id)
+    return {"status": "ok", "job_id": job_id, "sections": [item.model_dump() for item in result.sections]}
+
+
+@app.get("/reports/{job_id}/evidence")
+def report_job_evidence(job_id: str) -> dict[str, Any]:
+    result = report_job_result(job_id)
+    return {
+        "status": "ok",
+        "job_id": job_id,
+        "extractions": [item.model_dump() for item in result.extractions],
+        "validation_issues": [item.model_dump() for item in result.validation_issues],
+    }
+
+
+@app.get("/reports/{job_id}/features")
+def report_job_features(job_id: str) -> dict[str, Any]:
+    result = report_job_result(job_id)
+    return {"status": "ok", "job_id": job_id, "features": [item.model_dump() for item in result.features]}
+
+
+@app.get("/reports/{job_id}/decision")
+def report_job_decision(job_id: str) -> dict[str, Any]:
+    result = report_job_result(job_id)
+    if result.decision is None:
+        raise HTTPException(status_code=409, detail="Report decision is not available yet")
+    return {"status": "ok", "job_id": job_id, "decision": result.decision.model_dump()}
+
+
+@app.delete("/reports/{job_id}")
+def report_job_delete(job_id: str) -> dict[str, Any]:
+    try:
+        delete_job(job_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Report job '{job_id}' not found") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "job_id": job_id, "deleted": True}
 
 
 @app.post("/score-company-csv")

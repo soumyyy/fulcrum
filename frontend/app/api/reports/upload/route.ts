@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { backendBaseUrl, proxyError, proxyJsonResponse } from "../_backend";
+import { backendBaseUrl, proxyError, proxyJsonResponse } from "../../_backend";
 
 export async function POST(request: NextRequest) {
   const backendUrl = backendBaseUrl();
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           status: "error",
-          detail: "A CSV file is required under the 'file' field.",
+          detail: "A PDF file is required under the 'file' field.",
         },
         { status: 400 }
       );
@@ -22,7 +22,14 @@ export async function POST(request: NextRequest) {
     const outboundForm = new FormData();
     outboundForm.append("file", file, file.name);
 
-    const response = await fetch(`${backendUrl}/score-company-csv`, {
+    for (const key of ["company_name", "cin", "sector", "financial_year", "basis_preference"]) {
+      const value = incomingForm.get(key);
+      if (typeof value === "string" && value.trim() !== "") {
+        outboundForm.append(key, value);
+      }
+    }
+
+    const response = await fetch(`${backendUrl}/reports/upload`, {
       method: "POST",
       body: outboundForm,
       cache: "no-store",
@@ -31,9 +38,7 @@ export async function POST(request: NextRequest) {
     return proxyJsonResponse(response);
   } catch (error) {
     return proxyError(
-      error instanceof Error
-        ? error.message
-        : "Failed to reach the Fulcrum backend /score-company-csv endpoint"
+      error instanceof Error ? error.message : "Failed to reach the Fulcrum backend /reports/upload endpoint"
     );
   }
 }

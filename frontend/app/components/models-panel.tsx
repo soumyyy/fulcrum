@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-type JsonValue = string | number | boolean | null | undefined | JsonValue[] | Record<string, JsonValue>;
+type JsonValue = string | number | boolean | null | undefined | JsonValue[] | JsonObject;
+type JsonObject = { [key: string]: JsonValue };
 
 type ModelRecord = {
   model_name: string;
