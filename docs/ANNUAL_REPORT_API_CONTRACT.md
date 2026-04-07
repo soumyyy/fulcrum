@@ -6,6 +6,12 @@ The contract is intentionally split from the existing portfolio API. The existin
 
 ## Product Boundary
 
+Runtime dependency for extraction:
+
+- `GEMINI_API_KEY` must be set in the FastAPI backend environment.
+- `GEMINI_MODEL` is optional and defaults to `gemini-2.5-flash`.
+- The Gemini call is server-side only. The Next.js frontend must never receive or store the API key.
+
 V1 should support:
 
 - one annual-report PDF per job
@@ -61,11 +67,11 @@ Request:
 | Field | Type | Required | Notes |
 |---|---|---:|---|
 | `file` | PDF file | yes | Annual report PDF |
-| `company_name` | string | no | User hint |
-| `cin` | string | no | User hint |
-| `sector` | string | no | User hint |
-| `financial_year` | integer | no | User hint |
-| `basis_preference` | enum | no | `standalone`, `consolidated`, or `auto`; default `standalone` |
+| `company_name` | string | no | Backend compatibility only; frontend should not ask the user for this |
+| `cin` | string | no | Backend compatibility only; frontend should not ask the user for this |
+| `sector` | string | no | Backend compatibility only; frontend should not ask the user for this |
+| `financial_year` | integer | no | Backend compatibility only; frontend should not ask the user for this |
+| `basis_preference` | enum | no | Backend compatibility only; extraction should infer basis where possible |
 
 Response `202`:
 

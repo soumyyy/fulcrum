@@ -25,7 +25,6 @@
 }
 
 html {
-  min-width: 1280px;
   background:
     radial-gradient(circle at 14% 18%, rgba(74, 146, 255, 0.12), transparent 30%),
     radial-gradient(circle at 82% 10%, rgba(140, 240, 204, 0.11), transparent 28%),
@@ -36,8 +35,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
-  min-width: 1280px;
+  font-family: var(--font-geist-sans), "Aptos", "Helvetica Neue", sans-serif;
 }
 
 a {

@@ -48,6 +48,7 @@ logs/
 
 # Local raw data and scratch space
 data/raw/
+data/report_jobs/
 tmp/
 temp/
 

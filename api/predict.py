@@ -5,6 +5,7 @@ from io import StringIO
 import json
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
 import pandas as pd
@@ -31,7 +32,7 @@ from report_job_runner import (  # noqa: E402
     read_events,
     read_job,
     read_result,
-    run_stub_report_job,
+    run_report_job,
     save_upload_bytes,
 )
 from api.report_contract import (  # noqa: E402
@@ -449,7 +450,7 @@ async def upload_annual_report(
             basis_preference=basis_preference,
         )
         save_upload_bytes(destination, content)
-        background_tasks.add_task(run_stub_report_job, job["job_id"])
+        background_tasks.add_task(run_report_job, job["job_id"])
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -491,17 +492,29 @@ def report_job_status(job_id: str) -> ReportJobStatusResponse:
 @app.get("/reports/{job_id}/events")
 def report_job_events(job_id: str) -> StreamingResponse:
     try:
-        events = read_events(job_id)
+        read_job(job_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Report job '{job_id}' not found") from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     def event_stream():
-        for event in events:
-            event_name = str(event.get("event", "message"))
-            yield f"event: {event_name}\n"
-            yield "data: " + json.dumps(event) + "\n\n"
+        sent_event_ids: set[str] = set()
+        for _ in range(1800):
+            events = read_events(job_id)
+            for event in events:
+                event_id = str(event.get("event_id", ""))
+                if event_id in sent_event_ids:
+                    continue
+                sent_event_ids.add(event_id)
+                event_name = str(event.get("event", "message"))
+                yield f"event: {event_name}\n"
+                yield "data: " + json.dumps(event) + "\n\n"
+
+            job = read_job(job_id)
+            if job.get("status") in {"completed", "failed"} and len(sent_event_ids) >= len(events):
+                break
+            time.sleep(0.75)
 
     return StreamingResponse(
         event_stream(),
