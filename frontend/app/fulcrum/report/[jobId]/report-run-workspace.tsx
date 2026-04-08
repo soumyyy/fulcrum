@@ -224,6 +224,203 @@ const FEATURE_LABELS: Record<string, { label: string; bench: string; direction: 
   log_revenue:                  { label: "Scale: revenue (log)",        bench: "Scale control",     direction: "—" },
 };
 
+// ─── Sector benchmarks ───────────────────────────────────────────────────────
+
+type SectorMedians = {
+  name: string;
+  debt_to_assets: number;
+  ebitda_margin: number;
+  pat_margin: number;
+  roa: number;
+  current_ratio: number;
+  cfo_to_ebitda: number;
+};
+
+const SECTOR_BENCH: Record<string, SectorMedians> = {
+  nbfc:          { name: "NBFC",             debt_to_assets: 0.72, ebitda_margin: 0.35, pat_margin: 0.18, roa: 0.022, current_ratio: 1.10, cfo_to_ebitda: 0.65 },
+  it:            { name: "IT Services",      debt_to_assets: 0.12, ebitda_margin: 0.22, pat_margin: 0.15, roa: 0.160, current_ratio: 2.20, cfo_to_ebitda: 0.90 },
+  pharma:        { name: "Pharma",           debt_to_assets: 0.25, ebitda_margin: 0.20, pat_margin: 0.12, roa: 0.100, current_ratio: 2.00, cfo_to_ebitda: 0.80 },
+  realestate:    { name: "Real Estate",      debt_to_assets: 0.52, ebitda_margin: 0.22, pat_margin: 0.10, roa: 0.045, current_ratio: 1.40, cfo_to_ebitda: 0.55 },
+  infra:         { name: "Infrastructure",   debt_to_assets: 0.58, ebitda_margin: 0.28, pat_margin: 0.08, roa: 0.035, current_ratio: 1.20, cfo_to_ebitda: 0.70 },
+  power:         { name: "Power / Energy",   debt_to_assets: 0.60, ebitda_margin: 0.32, pat_margin: 0.08, roa: 0.040, current_ratio: 1.10, cfo_to_ebitda: 0.65 },
+  steel:         { name: "Steel / Metals",   debt_to_assets: 0.45, ebitda_margin: 0.16, pat_margin: 0.05, roa: 0.055, current_ratio: 1.50, cfo_to_ebitda: 0.70 },
+  textile:       { name: "Textile",          debt_to_assets: 0.48, ebitda_margin: 0.13, pat_margin: 0.04, roa: 0.045, current_ratio: 1.50, cfo_to_ebitda: 0.65 },
+  retail:        { name: "Retail / FMCG",    debt_to_assets: 0.30, ebitda_margin: 0.12, pat_margin: 0.06, roa: 0.090, current_ratio: 1.30, cfo_to_ebitda: 0.78 },
+  manufacturing: { name: "Manufacturing",    debt_to_assets: 0.42, ebitda_margin: 0.14, pat_margin: 0.06, roa: 0.065, current_ratio: 1.60, cfo_to_ebitda: 0.75 },
+};
+
+function matchSector(sector: string | null): SectorMedians | null {
+  if (!sector) return null;
+  const s = sector.toLowerCase();
+  if (s.includes("nbfc") || s.includes("non-bank") || s.includes("housing finance") || s.includes("microfinance") || s.includes("hfc")) return SECTOR_BENCH.nbfc;
+  if (s.includes("information tech") || s.includes("software") || s.includes(" it ") || s === "it") return SECTOR_BENCH.it;
+  if (s.includes("pharma") || s.includes("health") || s.includes("drug") || s.includes("hospital")) return SECTOR_BENCH.pharma;
+  if (s.includes("real estate") || s.includes("realty") || s.includes("construction") || s.includes("developer")) return SECTOR_BENCH.realestate;
+  if (s.includes("infra") || s.includes("roads") || s.includes("highways") || s.includes("airport")) return SECTOR_BENCH.infra;
+  if (s.includes("power") || s.includes("energy") || s.includes("electric") || s.includes("utilities")) return SECTOR_BENCH.power;
+  if (s.includes("steel") || s.includes("metal") || s.includes("mining") || s.includes("iron") || s.includes("alumin")) return SECTOR_BENCH.steel;
+  if (s.includes("textile") || s.includes("garment") || s.includes("fabric") || s.includes("apparel")) return SECTOR_BENCH.textile;
+  if (s.includes("retail") || s.includes("fmcg") || s.includes("consumer goods") || s.includes("beverages") || s.includes("foods")) return SECTOR_BENCH.retail;
+  if (s.includes("manufactur") || s.includes("auto") || s.includes("cement") || s.includes("chemical") || s.includes("plastic")) return SECTOR_BENCH.manufacturing;
+  return null;
+}
+
+// ─── Executive summary builder ────────────────────────────────────────────────
+
+function buildExecutiveSummary({
+  company, extractions, features, modelOutput, derived,
+}: {
+  company: ReportJobResult["company"] | null;
+  extractions: ExtractedField[];
+  features: FeatureValue[];
+  modelOutput: ReportJobResult["model_output"] | null;
+  derived: DerivedMetrics;
+}): string[] {
+  const featVal = (n: string) => features.find((f) => f.feature === n)?.value ?? null;
+
+  const name   = company?.company_name ?? "The company";
+  const sector = company?.sector ?? null;
+  const fy     = company?.financial_year;
+  const assets = numericField(extractions, "total_assets");
+  const revenue = numericField(extractions, "revenue");
+  const pat    = numericField(extractions, "pat");
+  const ebitdaMargin = featVal("ebitda_margin");
+  const patMargin    = featVal("pat_margin");
+
+  // Sentence 1 — scale & identity
+  const sectorPart = sector ? ` ${sector.toLowerCase()}` : "";
+  const assetsPart = assets ? ` reporting ₹${assets.toLocaleString("en-IN", { maximumFractionDigits: 0 })} cr in total assets` : "";
+  const fyPart     = fy ? ` for FY${fy}` : "";
+  const s1 = `${name} is a${sectorPart} company${assetsPart}${fyPart}.`;
+
+  // Sentence 2 — operating performance
+  let s2 = "";
+  if (revenue !== null) {
+    const margins: string[] = [];
+    if (ebitdaMargin !== null) margins.push(`${fmtPct(ebitdaMargin)} EBITDA margin`);
+    if (patMargin !== null)    margins.push(`${fmtPct(patMargin)} PAT margin`);
+    const patPart = pat !== null ? (pat < 0 ? " and a net loss" : ` and PAT of ${fmtMoney(pat)}`) : "";
+    const margPart = margins.length > 0 ? ` with ${margins.join(", ")}` : "";
+    s2 = `Revenue stands at ${fmtMoney(revenue)}${margPart}${patPart}.`;
+  }
+
+  // Sentence 3 — risk signals (derive from data; fallback to top_drivers)
+  const redFlags: string[] = [];
+  const ca = numericField(extractions, "current_assets");
+  const cl = numericField(extractions, "current_liabilities");
+  const cr = ca !== null && cl !== null && cl !== 0 ? ca / cl : null;
+
+  if (derived.debtToEquity !== null && derived.debtToEquity > 3)            redFlags.push(`high leverage (D/E ${fmtX(derived.debtToEquity)})`);
+  if (featVal("debt_to_assets") !== null && featVal("debt_to_assets")! > 0.65) redFlags.push(`elevated debt/assets ratio of ${fmtRatio(featVal("debt_to_assets"))}`);
+  if (derived.freeCashFlow !== null && derived.freeCashFlow < 0)             redFlags.push("negative free cash flow");
+  if (cr !== null && cr < 1.0)                                               redFlags.push(`weak liquidity (current ratio ${fmtRatio(cr)})`);
+  if (ebitdaMargin !== null && ebitdaMargin < 0.05 && ebitdaMargin >= 0)    redFlags.push(`thin EBITDA margin of ${fmtPct(ebitdaMargin)}`);
+  if (ebitdaMargin !== null && ebitdaMargin < 0)                             redFlags.push("negative EBITDA");
+  if (pat !== null && pat < 0)                                               redFlags.push("net loss position");
+
+  let s3 = "";
+  if (redFlags.length > 0) {
+    s3 = `Primary concerns include ${redFlags.slice(0, 3).join("; ")}.`;
+  } else if (modelOutput?.top_drivers?.length) {
+    s3 = `Key risk drivers: ${modelOutput.top_drivers.slice(0, 2).join("; ")}.`;
+  } else if (features.length > 0) {
+    // All green — note the positives
+    const positives: string[] = [];
+    if (derived.debtToEquity !== null && derived.debtToEquity < 1.5) positives.push(`low leverage (D/E ${fmtX(derived.debtToEquity)})`);
+    if (ebitdaMargin !== null && ebitdaMargin > 0.15) positives.push(`healthy EBITDA margin of ${fmtPct(ebitdaMargin)}`);
+    if (derived.freeCashFlow !== null && derived.freeCashFlow > 0) positives.push("positive free cash flow");
+    if (positives.length > 0) s3 = `Strengths include ${positives.slice(0, 2).join(" and ")}.`;
+  }
+
+  // Sentence 4 — audit & verdict
+  const opinion      = rawField(extractions, "opinion_type");
+  const goingConcern = rawField(extractions, "going_concern_uncertainty");
+  const bucket       = modelOutput?.decision_bucket;
+  const meta         = bucket ? BUCKET_META[bucket] : null;
+  let s4 = "";
+  if (opinion) {
+    const opStr = String(opinion);
+    s4 = `Audit opinion is ${opStr}${goingConcern ? ", with going concern noted" : ""}`;
+    s4 += meta ? `; overall assessment: ${meta.label}.` : ".";
+  } else if (meta) {
+    s4 = `Overall risk assessment: ${meta.label}.`;
+  }
+
+  return [s1, s2, s3, s4].filter(Boolean);
+}
+
+// ─── Radar score computation ──────────────────────────────────────────────────
+
+type RadarAxis = { label: string; score: number };
+
+function clamp01(v: number) { return Math.max(0, Math.min(1, v)); }
+
+function computeRadarScores({
+  features, extractions, derived,
+}: {
+  features: FeatureValue[];
+  extractions: ExtractedField[];
+  derived: DerivedMetrics;
+}): RadarAxis[] {
+  const featVal = (n: string) => features.find((f) => f.feature === n)?.value ?? null;
+
+  // Profitability — higher is better
+  const ebitdaM = featVal("ebitda_margin");
+  const patM    = featVal("pat_margin");
+  const roa     = featVal("roa");
+  const profComponents: number[] = [];
+  if (ebitdaM !== null) profComponents.push(clamp01((ebitdaM + 0.05) / 0.30) * 100);
+  if (patM !== null)    profComponents.push(clamp01((patM    + 0.05) / 0.20) * 100);
+  if (roa !== null)     profComponents.push(clamp01((roa     + 0.02) / 0.18) * 100);
+  const profScore = profComponents.length > 0 ? profComponents.reduce((a, b) => a + b, 0) / profComponents.length : 50;
+
+  // Leverage — lower debt = higher score (invert)
+  const dta = featVal("debt_to_assets") ?? (derived.debtToAssets ?? null);
+  const levScore = dta !== null ? clamp01(1 - (dta - 0.15) / 0.65) * 100 : 50;
+
+  // Liquidity — current ratio
+  const ca = numericField(extractions, "current_assets");
+  const cl = numericField(extractions, "current_liabilities");
+  const cr = ca !== null && cl !== null && cl !== 0 ? ca / cl : null;
+  const liqScore = cr !== null ? clamp01((cr - 0.5) / 2.0) * 100 : 50;
+
+  // Cash quality — cfo_to_ebitda
+  const cte = featVal("cfo_to_ebitda") ?? (derived.freeCashFlow !== null && numericField(extractions, "ebitda") !== null && numericField(extractions, "ebitda")! !== 0
+    ? (derived.freeCashFlow / numericField(extractions, "ebitda")!)
+    : null);
+  const cashScore = cte !== null ? clamp01((cte + 0.2) / 1.2) * 100 : 50;
+
+  // Scale — log total assets, normalised roughly over Indian corp range (₹10cr–₹100,000cr)
+  const assets = numericField(extractions, "total_assets");
+  const logA   = assets !== null && assets > 0 ? Math.log10(assets) : null;
+  const scaleScore = logA !== null ? clamp01((logA - 1) / 4.5) * 100 : 50;
+
+  // Governance — audit opinion + flags
+  const opinion      = rawField(extractions, "opinion_type");
+  const goingConcern = rawField(extractions, "going_concern_uncertainty");
+  const fraud        = rawField(extractions, "fraud_reported");
+  const emph         = rawField(extractions, "emphasis_of_matter");
+  let govScore = 75; // default neutral-good
+  if (opinion) {
+    const op = String(opinion).toLowerCase();
+    if (op.includes("unqualif"))                     govScore = 85;
+    else if (op.includes("qualif"))                  govScore = 35;
+    else if (op.includes("adverse") || op.includes("disclaimer")) govScore = 10;
+  }
+  if (goingConcern) govScore = Math.max(govScore - 30, 5);
+  if (fraud)        govScore = Math.max(govScore - 40, 5);
+  if (emph)         govScore = Math.max(govScore - 10, 20);
+
+  return [
+    { label: "Profitability", score: Math.round(profScore) },
+    { label: "Leverage",      score: Math.round(levScore)  },
+    { label: "Liquidity",     score: Math.round(liqScore)  },
+    { label: "Cash Quality",  score: Math.round(cashScore) },
+    { label: "Scale",         score: Math.round(scaleScore)},
+    { label: "Governance",    score: Math.round(govScore)  },
+  ];
+}
+
 // ─── Markdown helpers ────────────────────────────────────────────────────────
 
 function memoBlocks(value: string) {
@@ -249,6 +446,7 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
   const [messages, setMessages] = useState<string[]>([]);
   const [error,    setError]    = useState<string | null>(null);
   const [showStatements, setShowStatements] = useState(false);
+  const [lightMode, setLightMode] = useState(false);
 
   const progress = status?.progress_pct ?? 0;
   const failed   = status?.status === "failed";
@@ -336,18 +534,48 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
     }),
   [sections]);
 
+  const radarAxes = useMemo(
+    () => result !== null ? computeRadarScores({ features, extractions, derived }) : null,
+    [features, extractions, derived, result],
+  );
+
   const workflow = activeWorkflow(progress, failed);
 
   return (
-    <main className="min-h-screen bg-[#08090b] text-[#e2e8f0]">
+    <main className="min-h-screen bg-[#08090b] text-[#e2e8f0]" {...(lightMode ? { "data-light": "" } : {})}>
+
+      {lightMode && (
+        <style>{`
+          [data-light] [class*="bg-[#08090b]"]  { background-color: #faf8f4 !important; }
+          [data-light] [class*="bg-[#0c0f14]"]  { background-color: #ffffff !important; }
+          [data-light] [class*="bg-[#0a0c10]"]  { background-color: #f2efe9 !important; }
+          [data-light] [class*="bg-[#0e1117]"]  { background-color: #f0ede7 !important; }
+          [data-light] [class*="text-[#e2e8f0]"] { color: #1e293b !important; }
+          [data-light] [class*="text-[#d7dde7]"] { color: #1e293b !important; }
+          [data-light] [class*="text-[#cbd5e1]"] { color: #1e293b !important; }
+          [data-light] [class*="text-[#d6d3cd]"] { color: #374151 !important; }
+          [data-light] [class*="text-[#94a3b8]"] { color: #4b5563 !important; }
+          [data-light] [class*="text-[#64748b]"] { color: #6b7280 !important; }
+          [data-light] [class*="text-[#475569]"] { color: #9ca3af !important; }
+          [data-light] [class*="text-[#334155]"] { color: #6b7280 !important; }
+          [data-light] .text-white               { color: #0f172a !important; }
+          [data-light] [class*="border-white"]   { border-color: rgba(0,0,0,0.1) !important; }
+          [data-light] [class*="divide-white"]   { border-color: rgba(0,0,0,0.08) !important; }
+          [data-light] [class*="bg-white/"]      { background-color: rgba(0,0,0,0.04) !important; }
+          [data-light] [class*="bg-[#d6d3cd]"]  { background-color: #94a3b8 !important; }
+          [data-light] [class*="shadow-black"]   { box-shadow: 0 25px 50px rgba(0,0,0,0.12) !important; }
+          [data-light] { background-color: #faf8f4; color: #1e293b; }
+        `}</style>
+      )}
 
       {/* ── Top bar ── */}
       <ReportTopBar
         company={result?.company ?? null}
-        modelOutput={result?.model_output ?? null}
         progress={progress}
         failed={failed}
         isComplete={result !== null}
+        lightMode={lightMode}
+        onToggleLightMode={() => setLightMode((v) => !v)}
       />
 
       {/* ── Processing banner ── */}
@@ -374,6 +602,15 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
 
           {/* ── Left: financial content ── */}
           <div className="divide-y divide-white/[0.06] border border-white/[0.07] bg-[#0c0f14]">
+            {result !== null && (
+              <ExecutiveCalloutBlock
+                company={result.company}
+                extractions={extractions}
+                features={features}
+                modelOutput={result.model_output}
+                derived={derived}
+              />
+            )}
             <FinancialSummaryBlock
               extractions={extractions}
               derived={derived}
@@ -383,10 +620,19 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
             />
             <AnalystMemoBlock sections={sortedSections} isStreaming={isStreaming} />
             <RatioAppendixBlock features={features} supplementary={supplementary} />
+            {result !== null && (
+              <SectorBenchmarkBlock
+                sector={result.company.sector}
+                features={features}
+                derived={derived}
+                extractions={extractions}
+              />
+            )}
           </div>
 
           {/* ── Right: sidebar ── */}
           <aside className="divide-y divide-white/[0.07] border border-white/[0.07] bg-[#0c0f14] xl:sticky xl:top-[49px] xl:max-h-[calc(100vh-58px)] xl:overflow-y-auto">
+            {radarAxes && <RadarChartPanel axes={radarAxes} />}
             <ModelVerdictPanel
               modelOutput={result?.model_output ?? null}
               decision={result?.decision ?? null}
@@ -414,18 +660,15 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
 function ReportTopBar({
-  company, modelOutput, progress, failed, isComplete,
+  company, progress, failed, isComplete, lightMode, onToggleLightMode,
 }: {
   company: ReportJobResult["company"] | null;
-  modelOutput: ReportJobResult["model_output"] | null;
   progress: number;
   failed: boolean;
   isComplete: boolean;
+  lightMode: boolean;
+  onToggleLightMode: () => void;
 }) {
-  const score  = modelOutput?.engine_score_0_100 ?? null;
-  const bucket = modelOutput?.decision_bucket ?? null;
-  const meta   = bucket ? BUCKET_META[bucket] : null;
-
   return (
     <div className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#08090b]/96 backdrop-blur-sm">
       <div className="mx-auto flex max-w-[1640px] items-center justify-between gap-6 px-5 py-3 lg:px-8">
@@ -450,22 +693,18 @@ function ReportTopBar({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-5">
-          {isComplete && score !== null ? (
-            <>
-              <div className="text-right">
-                <p className={`font-mono text-xl font-bold tabular-nums ${SCORE_COLOR(score)}`}>{score.toFixed(1)}</p>
-                <p className="text-[0.58rem] uppercase tracking-[0.2em] text-[#475569]">risk score</p>
-              </div>
-              {meta && (
-                <div className="text-right">
-                  <p className={`text-[0.72rem] font-semibold ${meta.color}`}>{meta.label}</p>
-                  <p className="text-[0.58rem] uppercase tracking-[0.2em] text-[#475569]">decision</p>
-                </div>
-              )}
-            </>
-          ) : !failed ? (
+          <button
+            onClick={onToggleLightMode}
+            className="text-[0.65rem] font-medium uppercase tracking-[0.18em] text-[#475569] transition hover:text-[#94a3b8]"
+            title={lightMode ? "Switch to dark mode" : "Switch to light mode"}
+            type="button"
+          >
+            {lightMode ? "Dark" : "Light"}
+          </button>
+          {!isComplete && !failed && (
             <p className="font-mono text-sm text-[#475569]">{progress}%</p>
-          ) : (
+          )}
+          {failed && (
             <p className="text-xs text-[#ef4444]">Failed</p>
           )}
         </div>
@@ -877,6 +1116,236 @@ function ValidationPanel({ issues }: { issues: ReportJobResult["validation_issue
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Executive callout block ──────────────────────────────────────────────────
+
+function ExecutiveCalloutBlock({
+  company, extractions, features, modelOutput, derived,
+}: {
+  company: ReportJobResult["company"] | null;
+  extractions: ExtractedField[];
+  features: FeatureValue[];
+  modelOutput: ReportJobResult["model_output"] | null;
+  derived: DerivedMetrics;
+}) {
+  const sentences = buildExecutiveSummary({ company, extractions, features, modelOutput, derived });
+  if (sentences.length === 0) return null;
+
+  const bucket = modelOutput?.decision_bucket ?? null;
+  const meta   = bucket ? BUCKET_META[bucket] : null;
+  const score  = modelOutput?.engine_score_0_100 ?? null;
+
+  const accentColor =
+    score !== null && score >= 65 ? "border-l-[#ef4444]" :
+    score !== null && score >= 45 ? "border-l-[#f59e0b]" :
+    "border-l-[#60a5fa]";
+
+  return (
+    <div className={`border-l-2 p-6 lg:p-8 ${accentColor}`}>
+      <div className="flex items-start justify-between gap-6">
+        <div className="flex-1 min-w-0">
+          <p className="mb-4 text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-[#475569]">Executive summary</p>
+          <div className="space-y-2 max-w-[80ch]">
+            {sentences.map((s, i) => (
+              <p key={i} className="text-[1.0rem] leading-7 text-[#d7dde7]">{s}</p>
+            ))}
+          </div>
+        </div>
+        {score !== null && (
+          <div className="shrink-0 text-right">
+            <p className={`font-mono text-3xl font-bold tabular-nums ${SCORE_COLOR(score)}`}>{score.toFixed(1)}</p>
+            {meta && <p className={`mt-1 text-[0.72rem] font-semibold ${meta.color}`}>{meta.label}</p>}
+            <p className="mt-0.5 text-[0.56rem] uppercase tracking-[0.22em] text-[#475569]">risk score</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Radar chart panel ────────────────────────────────────────────────────────
+
+function RadarChartPanel({ axes }: { axes: RadarAxis[] }) {
+  const cx = 140, cy = 140, r = 96, n = axes.length;
+
+  function axisPoint(i: number, frac: number) {
+    const angle = -Math.PI / 2 + i * (2 * Math.PI / n);
+    return { x: cx + r * frac * Math.cos(angle), y: cy + r * frac * Math.sin(angle) };
+  }
+
+  function toPolyPoints(fracs: number[]) {
+    return fracs.map((f, i) => { const p = axisPoint(i, f); return `${p.x},${p.y}`; }).join(" ");
+  }
+
+  const gridLevels = [0.25, 0.5, 0.75, 1.0];
+
+  function dotColor(s: number) {
+    if (s >= 68) return "#4ade80";
+    if (s >= 40) return "#f59e0b";
+    return "#ef4444";
+  }
+
+  return (
+    <div className="p-5">
+      <SectionHeader label="Risk fingerprint" sub="normalised 0–100 per axis" />
+      <div className="mt-4">
+        <svg viewBox="0 0 280 280" className="w-full max-w-[260px] mx-auto block">
+          {/* Grid rings */}
+          {gridLevels.map((lvl) => (
+            <polygon
+              key={lvl}
+              points={toPolyPoints(Array(n).fill(lvl))}
+              fill="none"
+              stroke="rgba(255,255,255,0.06)"
+              strokeWidth="1"
+            />
+          ))}
+          {/* Axis lines */}
+          {axes.map((_, i) => {
+            const p = axisPoint(i, 1);
+            return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />;
+          })}
+          {/* Score polygon */}
+          <polygon
+            points={toPolyPoints(axes.map((a) => a.score / 100))}
+            fill="rgba(139,183,255,0.12)"
+            stroke="rgba(139,183,255,0.55)"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          {/* Dots */}
+          {axes.map((axis, i) => {
+            const p = axisPoint(i, axis.score / 100);
+            return <circle key={i} cx={p.x} cy={p.y} r="3.5" fill={dotColor(axis.score)} />;
+          })}
+          {/* Labels */}
+          {axes.map((axis, i) => {
+            const lp = axisPoint(i, 1.27);
+            const anchor = Math.abs(lp.x - cx) < 8 ? "middle" : lp.x > cx ? "start" : "end";
+            return (
+              <text
+                key={i}
+                x={lp.x}
+                y={lp.y}
+                textAnchor={anchor}
+                dominantBaseline="middle"
+                fontSize="8.5"
+                fill="#64748b"
+                fontFamily="inherit"
+                letterSpacing="0.04em"
+              >
+                {axis.label}
+              </text>
+            );
+          })}
+        </svg>
+        {/* Score legend */}
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {axes.map((axis) => (
+            <div key={axis.label} className="text-center">
+              <p className={`font-mono text-[0.78rem] font-semibold tabular-nums ${axis.score >= 68 ? "text-[#4ade80]" : axis.score >= 40 ? "text-[#f59e0b]" : "text-[#ef4444]"}`}>
+                {axis.score}
+              </p>
+              <p className="text-[0.56rem] uppercase tracking-[0.12em] text-[#475569] leading-tight mt-0.5">{axis.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sector benchmark block ───────────────────────────────────────────────────
+
+function SectorBenchmarkBlock({
+  sector, features, derived, extractions,
+}: {
+  sector: string | null;
+  features: FeatureValue[];
+  derived: DerivedMetrics;
+  extractions: ExtractedField[];
+}) {
+  const bench = matchSector(sector);
+  if (!bench) return null;
+
+  const featVal = (n: string) => features.find((f) => f.feature === n)?.value ?? null;
+  const ca = numericField(extractions, "current_assets");
+  const cl = numericField(extractions, "current_liabilities");
+  const cr = ca !== null && cl !== null && cl !== 0 ? ca / cl : null;
+
+  type BenchRow = {
+    label: string;
+    company: number | null;
+    median: number;
+    fmt: (v: number | null) => string;
+    lowerIsBetter?: boolean;
+  };
+
+  const rows: BenchRow[] = [
+    { label: "Debt / assets",   company: featVal("debt_to_assets") ?? derived.debtToAssets, median: bench.debt_to_assets, fmt: fmtRatio, lowerIsBetter: true },
+    { label: "EBITDA margin",   company: featVal("ebitda_margin"),  median: bench.ebitda_margin, fmt: (v: number | null) => fmtPct(v) },
+    { label: "PAT margin",      company: featVal("pat_margin"),     median: bench.pat_margin,    fmt: (v: number | null) => fmtPct(v) },
+    { label: "ROA",             company: featVal("roa"),            median: bench.roa,           fmt: (v: number | null) => fmtPct(v) },
+    { label: "Current ratio",   company: cr,                        median: bench.current_ratio, fmt: fmtRatio },
+    { label: "CFO / EBITDA",    company: featVal("cfo_to_ebitda"),  median: bench.cfo_to_ebitda, fmt: fmtRatio },
+  ].filter((row) => row.company !== null);
+
+  if (rows.length === 0) return null;
+
+  function delta(row: BenchRow) {
+    if (row.company === null) return { label: "—", color: "text-[#475569]" };
+    const c = row.company;
+    const m = row.median;
+    const pct = (c - m) / Math.abs(m);
+    const isGood = row.lowerIsBetter ? c <= m : c >= m;
+    const isBad  = row.lowerIsBetter ? c > m  : c < m;
+    const magnitude = Math.abs(pct);
+    if (magnitude < 0.08) return { label: "≈ median", color: "text-[#94a3b8]" };
+    const adjective = magnitude > 0.25 ? (c > m ? "well above" : "well below") : (c > m ? "above" : "below");
+    return {
+      label: adjective,
+      color: isGood ? "text-[#4ade80]" : isBad ? "text-[#ef4444]" : "text-[#f59e0b]",
+    };
+  }
+
+  return (
+    <div className="p-6 lg:p-8">
+      <SectionHeader label={`vs. ${bench.name} sector`} sub="indicative benchmarks · sector medians" />
+      <div className="mt-5 overflow-hidden rounded border border-white/[0.07]">
+        <table className="w-full border-collapse">
+          <thead className="bg-white/[0.02]">
+            <tr className="border-b border-white/[0.07]">
+              {["Metric", "Company", "Sector median", "vs. peer"].map((h, i) => (
+                <th
+                  key={h}
+                  className={`px-4 py-3 text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#64748b] ${i === 0 ? "text-left" : "text-right"}`}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/[0.04]">
+            {rows.map((row) => {
+              const d = delta(row);
+              return (
+                <tr key={row.label}>
+                  <td className="px-4 py-3 text-[0.9rem] text-[#94a3b8]">{row.label}</td>
+                  <td className="px-4 py-3 text-right font-mono text-[0.9rem] font-medium text-[#d7dde7]">{row.fmt(row.company)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-[0.82rem] text-[#475569]">{row.fmt(row.median)}</td>
+                  <td className={`px-4 py-3 text-right text-[0.8rem] font-medium ${d.color}`}>{d.label}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-[0.62rem] text-[#334155]">
+        Benchmarks are indicative sector medians for Indian corporates. Actual peer ranges vary by sub-sector and year.
+      </p>
     </div>
   );
 }
