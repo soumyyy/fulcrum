@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { fetchReportJobs, uploadReport } from "../../api";
 import type { ReportJobSummary } from "../../types";
@@ -14,6 +14,7 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("en-IN", {
     day: "2-digit",
     month: "short",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
@@ -24,33 +25,44 @@ function scoreLabel(value: number | null) {
   return value.toFixed(1);
 }
 
+const BUCKET_COLORS: Record<string, string> = {
+  urgent_review: "text-[#ff6b35]",
+  review: "text-[#ffb38f]",
+  manual_check: "text-[#8fb7ff]",
+  watchlist: "text-[#d8dee8]",
+  monitor: "text-[#9ba1ad]",
+};
+
 export function ReportUploadWorkspace() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [jobs, setJobs] = useState<ReportJobSummary[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
-  const [loadingJobs, setLoadingJobs] = useState(true);
 
   useEffect(() => {
+    if (!sidebarOpen) return;
     const controller = new AbortController();
+    setLoadingJobs(true);
+    setJobsError(null);
     fetchReportJobs(controller.signal)
-      .then((payload) => {
-        setJobs(payload.results);
-        setJobsError(null);
-      })
-      .catch((jobError) => {
-        if (!controller.signal.aborted) setJobsError(jobError instanceof Error ? jobError.message : "Could not load prior analyses.");
+      .then((payload) => setJobs(payload.results))
+      .catch((err) => {
+        if (!controller.signal.aborted)
+          setJobsError(err instanceof Error ? err.message : "Could not load analyses.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingJobs(false);
       });
     return () => controller.abort();
-  }, []);
-
-  const completedJobs = useMemo(() => jobs.filter((job) => job.status === "completed" && job.has_result), [jobs]);
-  const runningJobs = useMemo(() => jobs.filter((job) => !["completed", "failed"].includes(job.status)), [jobs]);
+  }, [sidebarOpen]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,128 +72,219 @@ export function ReportUploadWorkspace() {
     }
     setSubmitting(true);
     setError(null);
-
     const formData = new FormData();
     formData.append("file", file, file.name);
-
     try {
       const upload = await uploadReport(formData);
-      router.push(`/fulcrum/report/${encodeURIComponent(upload.job_id)}`);
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Upload failed.");
+      router.push(`/fulcrum/report/${encodeURIComponent(upload.job_id)}/processing`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
       setSubmitting(false);
     }
   }
 
-  return (
-    <main className="min-h-screen bg-[#07080a] text-[#f6efe2]">
-      <div className="pointer-events-none fixed inset-0 [background:radial-gradient(circle_at_18%_12%,rgba(210,224,255,0.12),transparent_24%),radial-gradient(circle_at_78%_10%,rgba(242,236,222,0.09),transparent_24%),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.024)_1px,transparent_1px)] [background-size:auto,auto,58px_58px,58px_58px]" />
-      <section className="relative mx-auto grid min-h-screen w-full max-w-[1720px] gap-5 px-5 py-5 lg:grid-cols-[minmax(420px,0.85fr)_minmax(0,1.15fr)] lg:px-7">
-        <aside className="flex flex-col justify-between rounded-[2rem] border border-white/10 bg-[#101216]/95 p-5 shadow-2xl shadow-black/45">
-          <div>
-            <Link className="text-xs uppercase tracking-[0.24em] text-[#d8dee8]" href="/fulcrum">
-              ← Portfolio
-            </Link>
-            <div className="mt-10">
-              <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#8f98a6]">Annual report intake</p>
-              <h1 className="mt-3 text-5xl font-semibold leading-[0.9] tracking-[-0.08em] text-white">
-                Drop the report. Get the risk memo.
-              </h1>
-              <p className="mt-5 text-sm leading-7 text-[#d8d1c4]">
-                Fulcrum extracts company identity, financial year, basis, sector signal, accounting fields, ratios, model score, and a grounded analyst memo. No manual company metadata required.
-              </p>
-            </div>
+  function handleDrop(event: React.DragEvent) {
+    event.preventDefault();
+    setDragging(false);
+    const dropped = event.dataTransfer.files[0];
+    if (dropped?.type === "application/pdf") {
+      setFile(dropped);
+      setError(null);
+    } else {
+      setError("Only PDF files are accepted.");
+    }
+  }
 
-            <form className="mt-8 space-y-4" onSubmit={submit}>
-              <label className="group block cursor-pointer rounded-[2rem] border border-dashed border-[#d8dee8]/35 bg-white/[0.045] p-6 text-sm text-[#f5efe4] transition hover:border-[#d8dee8]/75 hover:bg-white/[0.07]">
-                <span className="block text-[0.65rem] uppercase tracking-[0.28em] text-[#b8c0cc]">Annual report PDF</span>
-                <span className="mt-5 block rounded-[1.5rem] border border-white/10 bg-black/30 p-5">
-                  <span className="block text-lg font-semibold tracking-[-0.04em] text-white">{file ? file.name : "Choose a PDF file"}</span>
-                  <span className="mt-2 block text-xs leading-5 text-[#9da6b5]">PDF only. The analysis starts immediately after upload and streams to a dedicated report page.</span>
-                </span>
+  return (
+    <>
+      <main className="min-h-screen bg-[#08090b] text-[#f6efe2]">
+        <div className="pointer-events-none fixed inset-0 [background:linear-gradient(110deg,rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(200deg,rgba(255,255,255,0.015)_1px,transparent_1px)] [background-size:56px_56px,56px_56px]" />
+        <div className="pointer-events-none fixed inset-0 [background:radial-gradient(ellipse_at_50%_-10%,rgba(143,183,255,0.08),transparent_55%)]" />
+
+        <div className="relative flex min-h-screen flex-col">
+          {/* Top bar */}
+          <header className="flex items-center justify-between px-8 py-6">
+            <Link
+              className="text-xs font-medium uppercase tracking-[0.28em] text-[#9ba1ad] transition hover:text-white"
+              href="/fulcrum"
+            >
+              ← Fulcrum
+            </Link>
+            <button
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-[#aeb7c5] transition hover:border-white/20 hover:text-white"
+              onClick={() => setSidebarOpen(true)}
+              type="button"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#8fb7ff]" />
+              Previous analyses
+            </button>
+          </header>
+
+          {/* Centered content */}
+          <div className="flex flex-1 flex-col items-center justify-center px-6 pb-20">
+            <p className="text-[0.62rem] uppercase tracking-[0.4em] text-[#8f98a6]">Annual report intake</p>
+            <h1 className="mt-5 max-w-lg text-center text-5xl font-semibold leading-[0.92] tracking-[-0.07em] text-white">
+              Drop the report.<br />Get the risk memo.
+            </h1>
+            <p className="mt-5 max-w-sm text-center text-sm leading-7 text-[#7f8794]">
+              Extracts company identity, financials, ratios, and model score — then writes a grounded analyst memo.
+            </p>
+
+            <form className="mt-10 w-full max-w-md" onSubmit={submit}>
+              {/* Upload zone */}
+              <div
+                className={`cursor-pointer rounded-[2rem] border transition-all duration-200 ${
+                  dragging
+                    ? "border-[#8fb7ff]/60 bg-[#8fb7ff]/[0.08]"
+                    : file
+                    ? "border-white/20 bg-white/[0.05]"
+                    : "border-dashed border-white/12 bg-white/[0.025] hover:border-white/25 hover:bg-white/[0.045]"
+                }`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragLeave={() => setDragging(false)}
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDrop={handleDrop}
+              >
+                <div className="flex flex-col items-center justify-center gap-3 px-8 py-10">
+                  {file ? (
+                    <>
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.06]">
+                        <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-white">{file.name}</p>
+                        <p className="mt-1 text-xs text-[#9ba1ad]">{(file.size / 1024 / 1024).toFixed(1)} MB · PDF</p>
+                      </div>
+                      <button
+                        className="text-xs text-[#8f98a6] underline underline-offset-2 hover:text-[#d8dee8]"
+                        onClick={(e) => { e.stopPropagation(); setFile(null); setError(null); }}
+                        type="button"
+                      >
+                        Remove
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.035]">
+                        <svg className="h-5 w-5 text-[#9ba1ad]" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                          <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium text-[#d8dee8]">Click to upload or drag and drop</p>
+                        <p className="mt-1 text-xs text-[#7f8794]">Annual report PDF only</p>
+                      </div>
+                    </>
+                  )}
+                </div>
                 <input
                   accept="application/pdf"
                   className="sr-only"
-                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  onChange={(e) => { setFile(e.target.files?.[0] ?? null); setError(null); }}
+                  ref={fileInputRef}
                   type="file"
                 />
-              </label>
+              </div>
+
+              {error ? (
+                <p className="mt-3 text-center text-xs text-[#ff6b35]">{error}</p>
+              ) : null}
+
               <button
-                className="h-[56px] w-full rounded-2xl bg-[#e8edf7] px-5 py-4 text-sm font-semibold text-[#090b0f] shadow-[0_0_36px_rgba(216,222,232,0.16)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={submitting}
+                className="mt-4 h-[52px] w-full rounded-2xl bg-[#e8edf7] text-sm font-semibold text-[#090b0f] shadow-[0_0_40px_rgba(216,222,232,0.10)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-35"
+                disabled={submitting || !file}
                 type="submit"
               >
-                {submitting ? "Creating analysis run" : "Start report analysis"}
+                {submitting ? "Starting analysis…" : "Start analysis"}
               </button>
             </form>
-            {error ? <div className="mt-4 rounded-2xl border border-[#d8dee8]/35 bg-white/[0.06] p-4 text-sm text-[#f6efe2]">{error}</div> : null}
           </div>
+        </div>
+      </main>
 
-          <div className="mt-10 grid gap-3 sm:grid-cols-3">
-            <MiniStat label="Prior runs" value={String(jobs.length)} />
-            <MiniStat label="Completed" value={String(completedJobs.length)} />
-            <MiniStat label="Running" value={String(runningJobs.length)} />
+      {/* Sidebar backdrop */}
+      <div
+        className={`fixed inset-0 z-40 transition-all duration-300 ${sidebarOpen ? "pointer-events-auto" : "pointer-events-none"}`}
+        onClick={() => setSidebarOpen(false)}
+      >
+        <div className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${sidebarOpen ? "opacity-100" : "opacity-0"}`} />
+      </div>
+
+      {/* Sidebar panel */}
+      <aside
+        className={`fixed right-0 top-0 z-50 flex h-full w-[min(440px,100vw)] flex-col border-l border-white/10 bg-[#0c0e12]/98 shadow-2xl shadow-black/70 backdrop-blur-2xl transition-transform duration-300 ease-out ${
+          sidebarOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-[0.6rem] uppercase tracking-[0.32em] text-[#8f98a6]">Report archive</p>
+            <h2 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-white">Previous analyses</h2>
           </div>
-        </aside>
+          <button
+            className="grid h-8 w-8 place-items-center rounded-xl border border-white/10 text-[#9ba1ad] transition hover:border-white/20 hover:text-white"
+            onClick={() => setSidebarOpen(false)}
+            type="button"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
 
-        <section className="rounded-[2rem] border border-white/10 bg-[#0d0f13]/94 p-5 shadow-2xl shadow-black/45">
-          <div className="flex flex-col gap-3 border-b border-white/10 pb-5 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-[0.65rem] uppercase tracking-[0.32em] text-[#8f98a6]">Previous analyses</p>
-              <h2 className="mt-2 text-4xl font-semibold tracking-[-0.07em] text-white">Report archive</h2>
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {loadingJobs ? (
+            <div className="flex flex-col gap-2 pt-2">
+              {[1, 2, 3].map((i) => (
+                <div className="h-20 animate-pulse rounded-2xl bg-white/[0.04]" key={i} />
+              ))}
             </div>
-            <p className="max-w-md text-xs leading-5 text-[#9da6b5]">Local JSON-backed history from prior annual-report runs. No database involved.</p>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {loadingJobs ? <ArchivePlaceholder text="Loading prior report runs." /> : null}
-            {jobsError ? <ArchivePlaceholder text={jobsError} /> : null}
-            {!loadingJobs && !jobsError && jobs.length === 0 ? <ArchivePlaceholder text="No annual reports analyzed yet." /> : null}
-            {jobs.map((job) => (
-              <Link
-                className="group grid gap-4 rounded-[1.5rem] border border-white/10 bg-black/25 p-4 transition hover:border-[#d8dee8]/45 hover:bg-white/[0.055] md:grid-cols-[1fr_auto]"
-                href={`/fulcrum/report/${encodeURIComponent(job.job_id)}`}
-                key={job.job_id}
-              >
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] uppercase tracking-[0.18em] text-[#aeb7c5]">{job.status}</span>
-                    {job.decision_bucket ? <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] uppercase tracking-[0.18em] text-[#d8d1c4]">{job.decision_bucket}</span> : null}
-                    {job.model_alignment ? <span className="rounded-full border border-white/10 px-3 py-1 text-[0.65rem] uppercase tracking-[0.18em] text-[#8f98a6]">{job.model_alignment}</span> : null}
+          ) : jobsError ? (
+            <p className="pt-6 text-center text-sm text-[#9ba1ad]">{jobsError}</p>
+          ) : jobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center pt-20 text-center">
+              <p className="text-sm text-[#9ba1ad]">No analyses yet.</p>
+              <p className="mt-2 text-xs text-[#7f8794]">Upload an annual report to get started.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {jobs.map((job) => (
+                <Link
+                  className="group block rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-white/18 hover:bg-white/[0.055]"
+                  href={`/fulcrum/report/${encodeURIComponent(job.job_id)}`}
+                  key={job.job_id}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`text-[0.6rem] uppercase tracking-[0.18em] ${BUCKET_COLORS[job.decision_bucket ?? ""] ?? "text-[#8f98a6]"}`}>
+                          {job.decision_bucket ?? job.status}
+                        </span>
+                        {job.model_alignment ? (
+                          <span className="text-[0.6rem] uppercase tracking-[0.14em] text-[#5a6070]">{job.model_alignment}</span>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 truncate text-sm font-semibold text-white group-hover:text-[#e8edf7]">
+                        {job.company_name ?? job.upload_filename ?? job.job_id}
+                      </p>
+                      <p className="mt-1 text-xs text-[#7f8794]">
+                        {job.financial_year ?? "FY pending"} · {job.sector ?? "sector pending"}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-mono text-lg font-semibold text-white">{scoreLabel(job.engine_score_0_100)}</p>
+                      <p className="mt-0.5 text-[0.58rem] text-[#5a6070]">{formatDate(job.completed_at ?? job.updated_at ?? null)}</p>
+                    </div>
                   </div>
-                  <h3 className="mt-3 text-2xl font-semibold tracking-[-0.05em] text-white group-hover:text-[#e8edf7]">
-                    {job.company_name ?? job.upload_filename ?? job.job_id}
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-[#bfc7d3]">
-                    {job.financial_year ?? "FY pending"} · {job.sector ?? "sector pending"} · {job.upload_filename ?? "uploaded PDF"}
-                  </p>
-                  <p className="mt-2 font-mono text-xs text-[#7f8794]">{job.job_id}</p>
-                </div>
-                <div className="flex items-end justify-between gap-5 md:flex-col md:items-end">
-                  <div className="text-right">
-                    <p className="text-[0.65rem] uppercase tracking-[0.22em] text-[#8f98a6]">Risk score</p>
-                    <p className="mt-1 font-mono text-3xl font-semibold text-white">{scoreLabel(job.engine_score_0_100)}</p>
-                  </div>
-                  <p className="text-xs text-[#8f98a6]">{formatDate(job.completed_at ?? job.updated_at ?? job.created_at)}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      </section>
-    </main>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
   );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-3xl border border-white/10 bg-black/25 p-4">
-      <p className="text-[0.65rem] uppercase tracking-[0.22em] text-[#8f98a6]">{label}</p>
-      <p className="mt-2 font-mono text-2xl font-semibold text-white">{value}</p>
-    </div>
-  );
-}
-
-function ArchivePlaceholder({ text }: { text: string }) {
-  return <div className="rounded-[1.5rem] border border-white/10 bg-black/20 p-8 text-center text-sm text-[#9da6b5]">{text}</div>;
 }
