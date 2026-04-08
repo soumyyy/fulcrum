@@ -547,16 +547,12 @@ def _validation_issues(payload: dict[str, Any], job_id: str) -> list[dict[str, A
         )
 
     sector_source = document.get("_fulcrum_sector_source")
-    if sector_source:
-        severity = "info" if str(sector_source) in {"gemini_taxonomy", "keyword_from_gemini_sector"} else "watch"
+    if sector_source == "unresolved":
         issues.append(
             {
                 "field": "sector",
-                "severity": severity,
-                "message": (
-                    f"Sector resolved as {document.get('sector') or document.get('_fulcrum_gemini_sector') or 'Unknown'} "
-                    f"using {sector_source}; confidence={document.get('_fulcrum_sector_confidence', 0)}."
-                ),
+                "severity": "watch",
+                "message": "Sector could not be resolved confidently from the annual report.",
                 "source_refs": [],
             }
         )

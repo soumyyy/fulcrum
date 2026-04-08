@@ -263,9 +263,10 @@ Return ONLY valid JSON. Do not include markdown fences.
 Use only the structured input provided by the backend. Do not invent facts, peer data, dates, covenant terms, ratings, or auditor observations.
 Be direct and analytical. The audience is an expert risk analyst.
 Mention ratio values where relevant, and distinguish model-derived conclusions from extracted facts.
-If extraction confidence or sector detection is weak, say so.
+If extraction confidence or sector identification is weak, mention that only in plain business language.
 Mention the monetary basis explicitly: distinguish source report basis from Fulcrum's INR crore normalization.
 Do not mention internal model implementation names such as algorithm names, package names, or model artifact names. Refer only to "primary risk score" and "benchmark score".
+Do not mention internal extraction-routing labels, taxonomy-resolution labels, or numeric confidence scores.
 
 Return this exact JSON shape:
 {
@@ -298,7 +299,7 @@ Make the memo detailed enough to be useful without opening the ratio table:
 - compare key ratios to the provided standards
 - mention whether liquidity appears adequate or weak
 - mention whether cash conversion supports or contradicts accounting profitability
-- mention sector detection confidence and any model caveat
+- mention sector uncertainty only if it materially limits interpretation, and do so qualitatively
 - use bullets where it improves scanability
 - do not call the company a defaulter unless the provided model or source facts explicitly say so
 - do not overstate sector percentiles when the benchmark context says they are computed from upload scope only

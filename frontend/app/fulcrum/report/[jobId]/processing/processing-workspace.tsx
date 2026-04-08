@@ -32,7 +32,6 @@ function getStepStatus(index: number, progress: number): StepStatus {
 export function ProcessingWorkspace({ jobId }: { jobId: string }) {
   const router = useRouter();
   const [status, setStatus] = useState<ReportStatusResponse | null>(null);
-  const [companyName, setCompanyName] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const redirectedRef = useRef(false);
 
@@ -120,11 +119,7 @@ export function ProcessingWorkspace({ jobId }: { jobId: string }) {
       <div className="relative w-full max-w-sm">
         {/* Header */}
         <div className="mb-10 text-center">
-          {companyName ? (
-            <p className="text-sm font-medium text-white">{companyName}</p>
-          ) : (
-            <p className="text-xs uppercase tracking-[0.3em] text-[#8f98a6]">Analyzing report</p>
-          )}
+          <p className="text-xs uppercase tracking-[0.3em] text-[#8f98a6]">Analyzing report</p>
           {failed ? (
             <p className="mt-2 text-xs text-[#ff6b35]">Analysis failed</p>
           ) : done ? (
