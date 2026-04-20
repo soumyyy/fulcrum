@@ -47,3 +47,76 @@ a {
   background: rgba(140, 240, 204, 0.2);
   color: var(--foreground);
 }
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .print-hidden,
+  .print-action {
+    display: none !important;
+  }
+
+  .print-report-root {
+    min-height: auto !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .print-page-shell {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .print-report-grid {
+    display: block !important;
+  }
+
+  .print-report-main,
+  .print-report-sidebar {
+    border: 1px solid #d1d5db !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+  }
+
+  .print-report-main {
+    margin-bottom: 16px !important;
+  }
+
+  .print-report-sidebar {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-report-main > *,
+  .print-report-sidebar > * {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-report-root * {
+    color: inherit !important;
+    background-image: none !important;
+    text-shadow: none !important;
+  }
+
+  .print-report-root svg text {
+    fill: #111827 !important;
+  }
+
+  a {
+    text-decoration: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+}

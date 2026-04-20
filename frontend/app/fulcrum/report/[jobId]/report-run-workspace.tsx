@@ -541,8 +541,20 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
 
   const workflow = activeWorkflow(progress, failed);
 
+  const handlePrint = () => {
+    if (typeof window === "undefined") return;
+    const company = result?.company?.company_name?.trim() || "Fulcrum Report";
+    const fy = result?.company?.financial_year ? ` FY${result.company.financial_year}` : "";
+    const previousTitle = document.title;
+    document.title = `${company}${fy} - Fulcrum Risk Report`;
+    window.print();
+    window.setTimeout(() => {
+      document.title = previousTitle;
+    }, 250);
+  };
+
   return (
-    <main className="min-h-screen bg-[#08090b] text-[#e2e8f0]" {...(lightMode ? { "data-light": "" } : {})}>
+    <main className="print-report-root min-h-screen bg-[#08090b] text-[#e2e8f0]" {...(lightMode ? { "data-light": "" } : {})}>
 
       {lightMode && (
         <style>{`
@@ -597,11 +609,11 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
       )}
 
       {/* ── Main content ── */}
-      <div className="mx-auto max-w-[1640px] px-5 py-6 lg:px-8">
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="print-page-shell mx-auto max-w-[1640px] px-5 py-6 lg:px-8">
+        <div className="print-report-grid grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
 
           {/* ── Left: financial content ── */}
-          <div className="divide-y divide-white/[0.06] border border-white/[0.07] bg-[#0c0f14]">
+          <div className="print-report-main divide-y divide-white/[0.06] border border-white/[0.07] bg-[#0c0f14]">
             {result !== null && (
               <ExecutiveCalloutBlock
                 company={result.company}
@@ -631,7 +643,7 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
           </div>
 
           {/* ── Right: sidebar ── */}
-          <aside className="divide-y divide-white/[0.07] border border-white/[0.07] bg-[#0c0f14] xl:sticky xl:top-[49px] xl:max-h-[calc(100vh-58px)] xl:overflow-y-auto">
+          <aside className="print-report-sidebar divide-y divide-white/[0.07] border border-white/[0.07] bg-[#0c0f14] xl:sticky xl:top-[49px] xl:max-h-[calc(100vh-58px)] xl:overflow-y-auto">
             {radarAxes && <RadarChartPanel axes={radarAxes} />}
             <ModelVerdictPanel
               modelOutput={result?.model_output ?? null}
@@ -643,6 +655,17 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
 
         </div>
       </div>
+
+      {result !== null && (
+        <button
+          className="print-action fixed bottom-5 right-5 z-40 rounded-md border border-white/[0.14] bg-[#0c0f14]/95 px-3.5 py-2 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-[#d7dde7] shadow-[0_12px_28px_rgba(0,0,0,0.32)] transition hover:bg-white/[0.08]"
+          onClick={handlePrint}
+          type="button"
+          title="Print or save this report as PDF"
+        >
+          Print
+        </button>
+      )}
 
       {showStatements ? (
         <StatementsModal
@@ -670,7 +693,7 @@ function ReportTopBar({
   onToggleLightMode: () => void;
 }) {
   return (
-    <div className="sticky top-0 z-30 border-b border-white/[0.07] bg-[#08090b]/96 backdrop-blur-sm">
+    <div className="print-hidden sticky top-0 z-30 border-b border-white/[0.07] bg-[#08090b]/96 backdrop-blur-sm">
       <div className="mx-auto flex max-w-[1640px] items-center justify-between gap-6 px-5 py-3 lg:px-8">
         <div className="flex items-center gap-4 min-w-0">
           <Link
@@ -725,7 +748,7 @@ function ProcessingBanner({
   lastMessage: string | null;
 }) {
   return (
-    <div className={`border-b px-6 py-3 ${failed ? "border-[#ef4444]/20 bg-[#ef4444]/[0.05]" : "border-white/[0.05] bg-[#0a0c10]"}`}>
+    <div className={`print-hidden border-b px-6 py-3 ${failed ? "border-[#ef4444]/20 bg-[#ef4444]/[0.05]" : "border-white/[0.05] bg-[#0a0c10]"}`}>
       <div className="mx-auto flex max-w-[1640px] items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           {!failed && (
