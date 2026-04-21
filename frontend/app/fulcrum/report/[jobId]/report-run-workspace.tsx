@@ -16,14 +16,14 @@ import type {
 // ─── Pipeline stages ────────────────────────────────────────────────────────
 
 const PIPELINE_STAGES = [
-  { label: "Uploading annual report",  threshold: 0   },
-  { label: "Parsing document",         threshold: 15  },
-  { label: "Extracting fields",        threshold: 35  },
-  { label: "Validating values",        threshold: 55  },
-  { label: "Calculating ratios",       threshold: 70  },
-  { label: "Running models",           threshold: 82  },
-  { label: "Generating report",        threshold: 92  },
-  { label: "Ready for review",         threshold: 100 },
+  { label: "Uploading annual report", threshold: 0 },
+  { label: "Parsing document", threshold: 15 },
+  { label: "Extracting fields", threshold: 35 },
+  { label: "Validating values", threshold: 55 },
+  { label: "Calculating ratios", threshold: 70 },
+  { label: "Running models", threshold: 82 },
+  { label: "Generating report", threshold: 92 },
+  { label: "Ready for review", threshold: 100 },
 ];
 
 function activeWorkflow(progress: number, failed: boolean) {
@@ -49,15 +49,15 @@ const SECTION_ORDER = [
 type RiskSignal = "warn" | "caution" | "ok";
 
 const SIG_VAL: Record<RiskSignal, string> = {
-  warn:    "text-[#ef4444]",
+  warn: "text-[#ef4444]",
   caution: "text-[#f59e0b]",
-  ok:      "text-[#e2e8f0]",
+  ok: "text-[#e2e8f0]",
 };
 
 const SIG_ROW: Record<RiskSignal, string> = {
-  warn:    "border-l-2 border-l-[#ef4444]/50 bg-[#ef4444]/[0.04]",
+  warn: "border-l-2 border-l-[#ef4444]/50 bg-[#ef4444]/[0.04]",
   caution: "border-l-2 border-l-[#f59e0b]/40 bg-[#f59e0b]/[0.03]",
-  ok:      "",
+  ok: "",
 };
 
 // ─── Numeric helpers ─────────────────────────────────────────────────────────
@@ -105,6 +105,187 @@ function fmtX(v: number | null): string {
   return `${v.toFixed(2)}×`;
 }
 
+// ─── CSV export helpers ──────────────────────────────────────────────────────
+
+function csvEscape(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const s = typeof value === "number" ? (Number.isFinite(value) ? String(value) : "") : String(value);
+  if (/[",\n\r]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+  return s;
+}
+
+function rowsToCsv(rows: (string | number | null)[][]): string {
+  return rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+}
+
+function downloadBlob(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function buildReportCsv(
+  result: ReportJobResult,
+  derived: DerivedMetrics,
+  supplementary: SupplementaryRatio[],
+): string {
+  const company = result.company;
+  const model = result.model_output;
+  const decision = result.decision;
+  const reportingUnit = result.reporting_context?.normalized_monetary_unit ?? "INR crore";
+  const generatedAt = new Date().toISOString();
+
+  const sections: (string | number | null)[][][] = [];
+
+  // Report metadata
+  sections.push([
+    ["Fulcrum Credit Risk Report"],
+    ["Generated at", generatedAt],
+    ["Job ID", result.job_id],
+    ["Status", result.status],
+    ["Company", company?.company_name ?? ""],
+    ["CIN", company?.cin ?? ""],
+    ["Sector", company?.sector ?? ""],
+    ["Financial year", company?.financial_year ?? ""],
+    ["Basis", company?.basis_preference ?? ""],
+    ["Monetary unit", reportingUnit],
+    [],
+  ]);
+
+  // Model decision
+  if (model) {
+    sections.push([
+      ["Model decision"],
+      ["Metric", "Value"],
+      ["Engine model", model.engine_model_name],
+      ["Engine version", model.engine_model_version],
+      ["Engine probability", model.engine_probability],
+      ["Engine score 0-100", model.engine_score_0_100],
+      ["Engine risk band", model.engine_risk_band],
+      ["Audit model", model.audit_model_name],
+      ["Audit probability", model.audit_probability],
+      ["Audit score 0-100", model.audit_score_0_100],
+      ["Model alignment", model.model_alignment],
+      ["Decision bucket", model.decision_bucket],
+      ["Top drivers", (model.top_drivers ?? []).join(" | ")],
+      [],
+    ]);
+  }
+
+  if (decision) {
+    sections.push([
+      ["Decision statement"],
+      ["Final statement", decision.final_statement],
+      ["Confidence statement", decision.confidence_statement],
+      ["Warnings", (decision.warnings ?? []).join(" | ")],
+      [],
+    ]);
+  }
+
+  // Extracted fields
+  sections.push([
+    ["Extracted fields"],
+    ["Field", "Value", "Normalized value", "Unit", "Scale", "Period", "Basis", "Confidence", "Warnings"],
+    ...result.extractions.map((e) => [
+      e.field,
+      e.value,
+      e.normalized_value,
+      e.unit ?? "",
+      e.scale ?? "",
+      e.period ?? "",
+      e.basis,
+      e.confidence,
+      (e.warnings ?? []).join(" | "),
+    ] as (string | number | null)[]),
+    [],
+  ]);
+
+  // Model features
+  sections.push([
+    ["Model features (Tier-1A)"],
+    ["Feature", "Value", "Display value", "Direction", "Percentile", "Prior-year delta"],
+    ...result.features.map((f) => [
+      f.feature,
+      f.value,
+      f.display_value ?? "",
+      f.direction,
+      f.percentile,
+      f.prior_year_delta,
+    ] as (string | number | null)[]),
+    [],
+  ]);
+
+  // Derived ratios (our compute layer)
+  sections.push([
+    ["Derived ratios"],
+    ["Metric", "Value"],
+    ["EBIT", derived.ebit],
+    ["EBT", derived.ebt],
+    ["Effective tax rate", derived.effectiveTaxRate],
+    ["Free cash flow", derived.freeCashFlow],
+    ["Net debt", derived.netDebt],
+    ["Debt / equity", derived.debtToEquity],
+    ["Debt / assets", derived.debtToAssets],
+    ["EBITDA / interest", derived.ebitdaInterestCoverage],
+    ["Working capital", derived.workingCapital],
+    ["Asset turnover", derived.assetTurnover],
+    ["Interest / revenue", derived.interestToRevenue],
+    ["Total liabilities (book identity)", derived.totalLiabilities],
+    [],
+  ]);
+
+  // Altman Z'
+  sections.push([
+    ["Altman Z' Score (private-firm variant)"],
+    ["Component", "Value", "Weight"],
+    ["Working capital / total assets", derived.altmanZComponents.wcToAssets, 0.717],
+    ["Retained earnings / total assets", derived.altmanZComponents.reToAssets, 0.847],
+    ["EBIT / total assets", derived.altmanZComponents.ebitToAssets, 3.107],
+    ["Book equity / total liabilities", derived.altmanZComponents.equityToLiabilities, 0.420],
+    ["Revenue / total assets", derived.altmanZComponents.revenueToAssets, 0.998],
+    ["Altman Z'", derived.altmanZ, ""],
+    ["Zone", altmanZone(derived.altmanZ).label, ""],
+    [],
+  ]);
+
+  // Supplementary ratios
+  sections.push([
+    ["Supplementary ratios"],
+    ["Metric", "Value", "Benchmark", "Signal"],
+    ...supplementary.map((r) => [r.label, r.value, r.bench, r.signal] as (string | number | null)[]),
+    [],
+  ]);
+
+  // Validation issues
+  sections.push([
+    ["Validation issues"],
+    ["Field", "Severity", "Message"],
+    ...result.validation_issues.map((i) => [i.field ?? "", i.severity, i.message] as (string | number | null)[]),
+    [],
+  ]);
+
+  // Analyst memo (flattened)
+  sections.push([
+    ["Analyst memo sections"],
+    ["Section", "Status", "Provenance", "Markdown"],
+    ...result.sections.map((s) => [
+      s.title,
+      s.status,
+      (s.provenance ?? []).join(" | "),
+      s.markdown,
+    ] as (string | number | null)[]),
+  ]);
+
+  return sections.map(rowsToCsv).join("\r\n");
+}
+
 // ─── Derived metrics ─────────────────────────────────────────────────────────
 
 type DerivedMetrics = {
@@ -119,39 +300,139 @@ type DerivedMetrics = {
   interestToRevenue: number | null;
   ebit: number | null;
   debtToAssets: number | null;
+  altmanZ: number | null;
+  altmanZComponents: {
+    wcToAssets: number | null;
+    reToAssets: number | null;
+    ebitToAssets: number | null;
+    equityToLiabilities: number | null;
+    revenueToAssets: number | null;
+  };
+  totalLiabilities: number | null;
 };
 
 function computeDerived(ex: ExtractedField[]): DerivedMetrics {
-  const pat      = numericField(ex, "pat");
-  const tax      = numericField(ex, "tax_expense");
-  const cfo      = numericField(ex, "cfo");
-  const capex    = numericField(ex, "capex");
-  const borr     = numericField(ex, "total_borrowings");
-  const cash     = numericField(ex, "cash_and_equivalents");
-  const equity   = numericField(ex, "total_equity");
-  const ebitda   = numericField(ex, "ebitda");
-  const depr     = numericField(ex, "depreciation");
+  const pat = numericField(ex, "pat");
+  const tax = numericField(ex, "tax_expense");
+  const cfo = numericField(ex, "cfo");
+  const capex = numericField(ex, "capex");
+  const borr = numericField(ex, "total_borrowings");
+  const cash = numericField(ex, "cash_and_equivalents");
+  const equity = numericField(ex, "total_equity");
+  const ebitda = numericField(ex, "ebitda");
+  const depr = numericField(ex, "depreciation");
   const interest = numericField(ex, "interest_expense");
-  const ca       = numericField(ex, "current_assets");
-  const cl       = numericField(ex, "current_liabilities");
-  const revenue  = numericField(ex, "revenue");
-  const assets   = numericField(ex, "total_assets");
+  const ca = numericField(ex, "current_assets");
+  const cl = numericField(ex, "current_liabilities");
+  const revenue = numericField(ex, "revenue");
+  const assets = numericField(ex, "total_assets");
 
-  const ebt      = pat !== null && tax !== null ? pat + tax : null;
-  const ebit     = ebitda !== null && depr !== null ? ebitda - depr : null;
+  const ebt = pat !== null && tax !== null ? pat + tax : null;
+  const ebit = ebitda !== null && depr !== null ? ebitda - depr : null;
+  const retainedEarnings = numericField(ex, "retained_earnings");
+  const workingCapital = ca !== null && cl !== null ? ca - cl : null;
+
+  // Total liabilities ≈ total_assets − total_equity (book identity fallback).
+  // Prefer explicit liabilities if extracted; else fallback.
+  const totalLiabilitiesExtracted = numericField(ex, "total_liabilities");
+  const totalLiabilities =
+    totalLiabilitiesExtracted !== null
+      ? totalLiabilitiesExtracted
+      : assets !== null && equity !== null
+        ? assets - equity
+        : null;
+
+  // Altman Z'-Score for private/book-equity firms (Altman 1983):
+  //   Z' = 0.717·(WC/TA) + 0.847·(RE/TA) + 3.107·(EBIT/TA) + 0.420·(BE/TL) + 0.998·(S/TA)
+  // Zones: Z' > 2.90 = safe · 1.23–2.90 = grey · < 1.23 = distress
+  const wcToAssets = safeRatio(workingCapital, assets);
+  const reToAssets = safeRatio(retainedEarnings, assets);
+  const ebitToAssets = safeRatio(ebit, assets);
+  const equityToLiabilities = totalLiabilities !== null && totalLiabilities > 0 ? safeRatio(equity, totalLiabilities) : null;
+  const revenueToAssets = safeRatio(revenue, assets);
+  const zComponents = [wcToAssets, reToAssets, ebitToAssets, equityToLiabilities, revenueToAssets];
+  const altmanZ =
+    zComponents.every((c) => c !== null)
+      ? 0.717 * (wcToAssets as number)
+      + 0.847 * (reToAssets as number)
+      + 3.107 * (ebitToAssets as number)
+      + 0.420 * (equityToLiabilities as number)
+      + 0.998 * (revenueToAssets as number)
+      : null;
 
   return {
     ebt,
     ebit,
     effectiveTaxRate: safeRatio(tax, ebt),
-    freeCashFlow:     cfo !== null && capex !== null ? cfo - Math.abs(capex) : null,
-    netDebt:          borr !== null && cash !== null ? borr - cash : null,
-    debtToEquity:     safeRatio(borr, equity),
-    debtToAssets:     safeRatio(borr, assets),
+    freeCashFlow: cfo !== null && capex !== null ? cfo - Math.abs(capex) : null,
+    netDebt: borr !== null && cash !== null ? borr - cash : null,
+    debtToEquity: safeRatio(borr, equity),
+    debtToAssets: safeRatio(borr, assets),
     ebitdaInterestCoverage: safeRatio(ebitda, interest),
-    workingCapital:   ca !== null && cl !== null ? ca - cl : null,
-    assetTurnover:    safeRatio(revenue, assets),
+    workingCapital,
+    assetTurnover: safeRatio(revenue, assets),
     interestToRevenue: safeRatio(interest, revenue),
+    altmanZ,
+    altmanZComponents: {
+      wcToAssets,
+      reToAssets,
+      ebitToAssets,
+      equityToLiabilities,
+      revenueToAssets,
+    },
+    totalLiabilities,
+  };
+}
+
+// ─── Altman Z' zones ─────────────────────────────────────────────────────────
+
+type AltmanZone = {
+  key: "safe" | "grey" | "distress" | "unknown";
+  label: string;
+  description: string;
+  textClass: string;
+  accentClass: string;
+  bgClass: string;
+};
+
+function altmanZone(z: number | null): AltmanZone {
+  if (z === null || !Number.isFinite(z)) {
+    return {
+      key: "unknown",
+      label: "Insufficient data",
+      description: "Not all components for Altman Z' were extracted.",
+      textClass: "text-[#64748b]",
+      accentClass: "border-l-[#475569]",
+      bgClass: "bg-white/[0.02]",
+    };
+  }
+  if (z < 1.23) {
+    return {
+      key: "distress",
+      label: "Distress zone",
+      description: "High probability of financial distress within 2 years (Z' < 1.23).",
+      textClass: "text-[#ef4444]",
+      accentClass: "border-l-[#ef4444]",
+      bgClass: "bg-[#ef4444]/[0.05]",
+    };
+  }
+  if (z <= 2.90) {
+    return {
+      key: "grey",
+      label: "Grey zone",
+      description: "Ambiguous signal — monitor closely (1.23 ≤ Z' ≤ 2.90).",
+      textClass: "text-[#f59e0b]",
+      accentClass: "border-l-[#f59e0b]",
+      bgClass: "bg-[#f59e0b]/[0.04]",
+    };
+  }
+  return {
+    key: "safe",
+    label: "Safe zone",
+    description: "Low probability of distress on Altman's private-firm thresholds (Z' > 2.90).",
+    textClass: "text-[#4ade80]",
+    accentClass: "border-l-[#4ade80]",
+    bgClass: "bg-[#4ade80]/[0.04]",
   };
 }
 
@@ -160,26 +441,26 @@ function computeDerived(ex: ExtractedField[]): DerivedMetrics {
 type SupplementaryRatio = { feature: string; label: string; value: number | null; fmt: string; signal: RiskSignal; bench: string };
 
 function computeSupplementary(ex: ExtractedField[]): SupplementaryRatio[] {
-  const ca       = numericField(ex, "current_assets");
-  const cl       = numericField(ex, "current_liabilities");
-  const cash     = numericField(ex, "cash_and_equivalents");
-  const assets   = numericField(ex, "total_assets");
-  const cont     = numericField(ex, "contingent_liabilities_amount");
-  const ebitda   = numericField(ex, "ebitda");
+  const ca = numericField(ex, "current_assets");
+  const cl = numericField(ex, "current_liabilities");
+  const cash = numericField(ex, "cash_and_equivalents");
+  const assets = numericField(ex, "total_assets");
+  const cont = numericField(ex, "contingent_liabilities_amount");
+  const ebitda = numericField(ex, "ebitda");
   const interest = numericField(ex, "interest_expense");
 
-  const cr  = safeRatio(ca, cl);
+  const cr = safeRatio(ca, cl);
   const csr = safeRatio(cash, cl);
   const wca = ca !== null && cl !== null ? safeRatio(ca - cl, assets) : null;
   const cta = safeRatio(cont, assets);
-  const ei  = safeRatio(ebitda, interest);
+  const ei = safeRatio(ebitda, interest);
 
   return [
-    { feature: "current_ratio",                   label: "Current ratio",                  value: cr,  fmt: fmtRatio(cr),   signal: cr  !== null && cr  < 1.0 ? "warn" : cr !== null && cr < 1.5 ? "caution" : "ok", bench: "Healthy ≥ 1.5" },
-    { feature: "cash_ratio",                       label: "Cash ratio",                     value: csr, fmt: fmtRatio(csr),  signal: csr !== null && csr < 0.5 ? "warn" : "ok",                                        bench: "Acceptable ≥ 0.5" },
-    { feature: "working_capital_to_assets",        label: "Working capital / assets",       value: wca, fmt: fmtRatio(wca),  signal: wca !== null && wca < 0   ? "warn" : "ok",                                        bench: "Positive preferred" },
-    { feature: "contingent_liabilities_to_assets", label: "Contingent liabilities / assets",value: cta, fmt: fmtRatio(cta),  signal: cta !== null && cta > 0.1 ? "warn" : cta !== null && cta > 0.05 ? "caution" : "ok", bench: "Watch above 5%" },
-    { feature: "ebitda_to_interest",               label: "EBITDA / interest",               value: ei,  fmt: fmtX(ei),       signal: ei  !== null && ei  < 1.5 ? "warn" : ei  !== null && ei  < 2.0 ? "caution" : "ok",  bench: "Comfortable ≥ 2×" },
+    { feature: "current_ratio", label: "Current ratio", value: cr, fmt: fmtRatio(cr), signal: cr !== null && cr < 1.0 ? "warn" : cr !== null && cr < 1.5 ? "caution" : "ok", bench: "Healthy ≥ 1.5" },
+    { feature: "cash_ratio", label: "Cash ratio", value: csr, fmt: fmtRatio(csr), signal: csr !== null && csr < 0.5 ? "warn" : "ok", bench: "Acceptable ≥ 0.5" },
+    { feature: "working_capital_to_assets", label: "Working capital / assets", value: wca, fmt: fmtRatio(wca), signal: wca !== null && wca < 0 ? "warn" : "ok", bench: "Positive preferred" },
+    { feature: "contingent_liabilities_to_assets", label: "Contingent liabilities / assets", value: cta, fmt: fmtRatio(cta), signal: cta !== null && cta > 0.1 ? "warn" : cta !== null && cta > 0.05 ? "caution" : "ok", bench: "Watch above 5%" },
+    { feature: "ebitda_to_interest", label: "EBITDA / interest", value: ei, fmt: fmtX(ei), signal: ei !== null && ei < 1.5 ? "warn" : ei !== null && ei < 2.0 ? "caution" : "ok", bench: "Comfortable ≥ 2×" },
   ];
 }
 
@@ -188,7 +469,7 @@ function computeSupplementary(ex: ExtractedField[]): SupplementaryRatio[] {
 function featureSignal(f: FeatureValue): RiskSignal {
   if (typeof f.value !== "number") return "ok";
   if (f.feature === "debt_to_assets" && f.value > 0.65) return "warn";
-  if (f.feature === "debt_to_assets" && f.value > 0.5)  return "caution";
+  if (f.feature === "debt_to_assets" && f.value > 0.5) return "caution";
   if (["ebitda_margin", "pat_margin", "roa", "cfo_to_assets"].includes(f.feature) && f.value < 0) return "warn";
   if (f.feature === "cfo_to_ebitda" && f.value < 0) return "warn";
   if (f.feature === "cfo_to_ebitda" && f.value < 0.8) return "caution";
@@ -200,10 +481,10 @@ function featureSignal(f: FeatureValue): RiskSignal {
 
 const BUCKET_META: Record<string, { label: string; color: string }> = {
   urgent_review: { label: "Urgent review", color: "text-[#ef4444]" },
-  review:        { label: "Review",         color: "text-[#f59e0b]" },
-  manual_check:  { label: "Manual check",   color: "text-[#eab308]" },
-  watchlist:     { label: "Watchlist",      color: "text-[#60a5fa]" },
-  monitor:       { label: "Monitor",        color: "text-[#94a3b8]" },
+  review: { label: "Review", color: "text-[#f59e0b]" },
+  manual_check: { label: "Manual check", color: "text-[#eab308]" },
+  watchlist: { label: "Watchlist", color: "text-[#60a5fa]" },
+  monitor: { label: "Monitor", color: "text-[#94a3b8]" },
 };
 
 const SCORE_COLOR = (score: number) =>
@@ -212,16 +493,16 @@ const SCORE_COLOR = (score: number) =>
 // ─── Feature label map ───────────────────────────────────────────────────────
 
 const FEATURE_LABELS: Record<string, { label: string; bench: string; direction: string }> = {
-  debt_to_assets:               { label: "Debt / assets",               bench: "Watch > 0.50",     direction: "↑ worse" },
-  ebitda_margin:                { label: "EBITDA margin",               bench: "Sector-dependent", direction: "↓ worse" },
-  pat_margin:                   { label: "PAT margin",                  bench: "Positive required", direction: "↓ worse" },
-  roa:                          { label: "ROA",                         bench: "~5% acceptable",   direction: "↓ worse" },
-  retained_earnings_to_assets:  { label: "Retained earnings / assets",  bench: "Positive preferred",direction: "↓ worse" },
-  cfo_to_assets:                { label: "CFO / assets",                bench: "Positive required", direction: "↓ worse" },
-  cfo_to_ebitda:                { label: "CFO / EBITDA",               bench: "Watch < 0.8",       direction: "↓ worse" },
-  net_cash_change_to_assets:    { label: "Net cash change / assets",    bench: "Positive preferred",direction: "↓ worse" },
-  log_total_assets:             { label: "Scale: total assets (log)",   bench: "Scale control",     direction: "—" },
-  log_revenue:                  { label: "Scale: revenue (log)",        bench: "Scale control",     direction: "—" },
+  debt_to_assets: { label: "Debt / assets", bench: "Watch > 0.50", direction: "↑ worse" },
+  ebitda_margin: { label: "EBITDA margin", bench: "Sector-dependent", direction: "↓ worse" },
+  pat_margin: { label: "PAT margin", bench: "Positive required", direction: "↓ worse" },
+  roa: { label: "ROA", bench: "~5% acceptable", direction: "↓ worse" },
+  retained_earnings_to_assets: { label: "Retained earnings / assets", bench: "Positive preferred", direction: "↓ worse" },
+  cfo_to_assets: { label: "CFO / assets", bench: "Positive required", direction: "↓ worse" },
+  cfo_to_ebitda: { label: "CFO / EBITDA", bench: "Watch < 0.8", direction: "↓ worse" },
+  net_cash_change_to_assets: { label: "Net cash change / assets", bench: "Positive preferred", direction: "↓ worse" },
+  log_total_assets: { label: "Scale: total assets (log)", bench: "Scale control", direction: "—" },
+  log_revenue: { label: "Scale: revenue (log)", bench: "Scale control", direction: "—" },
 };
 
 // ─── Sector benchmarks ───────────────────────────────────────────────────────
@@ -237,16 +518,16 @@ type SectorMedians = {
 };
 
 const SECTOR_BENCH: Record<string, SectorMedians> = {
-  nbfc:          { name: "NBFC",             debt_to_assets: 0.72, ebitda_margin: 0.35, pat_margin: 0.18, roa: 0.022, current_ratio: 1.10, cfo_to_ebitda: 0.65 },
-  it:            { name: "IT Services",      debt_to_assets: 0.12, ebitda_margin: 0.22, pat_margin: 0.15, roa: 0.160, current_ratio: 2.20, cfo_to_ebitda: 0.90 },
-  pharma:        { name: "Pharma",           debt_to_assets: 0.25, ebitda_margin: 0.20, pat_margin: 0.12, roa: 0.100, current_ratio: 2.00, cfo_to_ebitda: 0.80 },
-  realestate:    { name: "Real Estate",      debt_to_assets: 0.52, ebitda_margin: 0.22, pat_margin: 0.10, roa: 0.045, current_ratio: 1.40, cfo_to_ebitda: 0.55 },
-  infra:         { name: "Infrastructure",   debt_to_assets: 0.58, ebitda_margin: 0.28, pat_margin: 0.08, roa: 0.035, current_ratio: 1.20, cfo_to_ebitda: 0.70 },
-  power:         { name: "Power / Energy",   debt_to_assets: 0.60, ebitda_margin: 0.32, pat_margin: 0.08, roa: 0.040, current_ratio: 1.10, cfo_to_ebitda: 0.65 },
-  steel:         { name: "Steel / Metals",   debt_to_assets: 0.45, ebitda_margin: 0.16, pat_margin: 0.05, roa: 0.055, current_ratio: 1.50, cfo_to_ebitda: 0.70 },
-  textile:       { name: "Textile",          debt_to_assets: 0.48, ebitda_margin: 0.13, pat_margin: 0.04, roa: 0.045, current_ratio: 1.50, cfo_to_ebitda: 0.65 },
-  retail:        { name: "Retail / FMCG",    debt_to_assets: 0.30, ebitda_margin: 0.12, pat_margin: 0.06, roa: 0.090, current_ratio: 1.30, cfo_to_ebitda: 0.78 },
-  manufacturing: { name: "Manufacturing",    debt_to_assets: 0.42, ebitda_margin: 0.14, pat_margin: 0.06, roa: 0.065, current_ratio: 1.60, cfo_to_ebitda: 0.75 },
+  nbfc: { name: "NBFC", debt_to_assets: 0.72, ebitda_margin: 0.35, pat_margin: 0.18, roa: 0.022, current_ratio: 1.10, cfo_to_ebitda: 0.65 },
+  it: { name: "IT Services", debt_to_assets: 0.12, ebitda_margin: 0.22, pat_margin: 0.15, roa: 0.160, current_ratio: 2.20, cfo_to_ebitda: 0.90 },
+  pharma: { name: "Pharma", debt_to_assets: 0.25, ebitda_margin: 0.20, pat_margin: 0.12, roa: 0.100, current_ratio: 2.00, cfo_to_ebitda: 0.80 },
+  realestate: { name: "Real Estate", debt_to_assets: 0.52, ebitda_margin: 0.22, pat_margin: 0.10, roa: 0.045, current_ratio: 1.40, cfo_to_ebitda: 0.55 },
+  infra: { name: "Infrastructure", debt_to_assets: 0.58, ebitda_margin: 0.28, pat_margin: 0.08, roa: 0.035, current_ratio: 1.20, cfo_to_ebitda: 0.70 },
+  power: { name: "Power / Energy", debt_to_assets: 0.60, ebitda_margin: 0.32, pat_margin: 0.08, roa: 0.040, current_ratio: 1.10, cfo_to_ebitda: 0.65 },
+  steel: { name: "Steel / Metals", debt_to_assets: 0.45, ebitda_margin: 0.16, pat_margin: 0.05, roa: 0.055, current_ratio: 1.50, cfo_to_ebitda: 0.70 },
+  textile: { name: "Textile", debt_to_assets: 0.48, ebitda_margin: 0.13, pat_margin: 0.04, roa: 0.045, current_ratio: 1.50, cfo_to_ebitda: 0.65 },
+  retail: { name: "Retail / FMCG", debt_to_assets: 0.30, ebitda_margin: 0.12, pat_margin: 0.06, roa: 0.090, current_ratio: 1.30, cfo_to_ebitda: 0.78 },
+  manufacturing: { name: "Manufacturing", debt_to_assets: 0.42, ebitda_margin: 0.14, pat_margin: 0.06, roa: 0.065, current_ratio: 1.60, cfo_to_ebitda: 0.75 },
 };
 
 function matchSector(sector: string | null): SectorMedians | null {
@@ -278,19 +559,19 @@ function buildExecutiveSummary({
 }): string[] {
   const featVal = (n: string) => features.find((f) => f.feature === n)?.value ?? null;
 
-  const name   = company?.company_name ?? "The company";
+  const name = company?.company_name ?? "The company";
   const sector = company?.sector ?? null;
-  const fy     = company?.financial_year;
+  const fy = company?.financial_year;
   const assets = numericField(extractions, "total_assets");
   const revenue = numericField(extractions, "revenue");
-  const pat    = numericField(extractions, "pat");
+  const pat = numericField(extractions, "pat");
   const ebitdaMargin = featVal("ebitda_margin");
-  const patMargin    = featVal("pat_margin");
+  const patMargin = featVal("pat_margin");
 
   // Sentence 1 — scale & identity
   const sectorPart = sector ? ` ${sector.toLowerCase()}` : "";
   const assetsPart = assets ? ` reporting ₹${assets.toLocaleString("en-IN", { maximumFractionDigits: 0 })} cr in total assets` : "";
-  const fyPart     = fy ? ` for FY${fy}` : "";
+  const fyPart = fy ? ` for FY${fy}` : "";
   const s1 = `${name} is a${sectorPart} company${assetsPart}${fyPart}.`;
 
   // Sentence 2 — operating performance
@@ -298,7 +579,7 @@ function buildExecutiveSummary({
   if (revenue !== null) {
     const margins: string[] = [];
     if (ebitdaMargin !== null) margins.push(`${fmtPct(ebitdaMargin)} EBITDA margin`);
-    if (patMargin !== null)    margins.push(`${fmtPct(patMargin)} PAT margin`);
+    if (patMargin !== null) margins.push(`${fmtPct(patMargin)} PAT margin`);
     const patPart = pat !== null ? (pat < 0 ? " and a net loss" : ` and PAT of ${fmtMoney(pat)}`) : "";
     const margPart = margins.length > 0 ? ` with ${margins.join(", ")}` : "";
     s2 = `Revenue stands at ${fmtMoney(revenue)}${margPart}${patPart}.`;
@@ -310,13 +591,13 @@ function buildExecutiveSummary({
   const cl = numericField(extractions, "current_liabilities");
   const cr = ca !== null && cl !== null && cl !== 0 ? ca / cl : null;
 
-  if (derived.debtToEquity !== null && derived.debtToEquity > 3)            redFlags.push(`high leverage (D/E ${fmtX(derived.debtToEquity)})`);
+  if (derived.debtToEquity !== null && derived.debtToEquity > 3) redFlags.push(`high leverage (D/E ${fmtX(derived.debtToEquity)})`);
   if (featVal("debt_to_assets") !== null && featVal("debt_to_assets")! > 0.65) redFlags.push(`elevated debt/assets ratio of ${fmtRatio(featVal("debt_to_assets"))}`);
-  if (derived.freeCashFlow !== null && derived.freeCashFlow < 0)             redFlags.push("negative free cash flow");
-  if (cr !== null && cr < 1.0)                                               redFlags.push(`weak liquidity (current ratio ${fmtRatio(cr)})`);
-  if (ebitdaMargin !== null && ebitdaMargin < 0.05 && ebitdaMargin >= 0)    redFlags.push(`thin EBITDA margin of ${fmtPct(ebitdaMargin)}`);
-  if (ebitdaMargin !== null && ebitdaMargin < 0)                             redFlags.push("negative EBITDA");
-  if (pat !== null && pat < 0)                                               redFlags.push("net loss position");
+  if (derived.freeCashFlow !== null && derived.freeCashFlow < 0) redFlags.push("negative free cash flow");
+  if (cr !== null && cr < 1.0) redFlags.push(`weak liquidity (current ratio ${fmtRatio(cr)})`);
+  if (ebitdaMargin !== null && ebitdaMargin < 0.05 && ebitdaMargin >= 0) redFlags.push(`thin EBITDA margin of ${fmtPct(ebitdaMargin)}`);
+  if (ebitdaMargin !== null && ebitdaMargin < 0) redFlags.push("negative EBITDA");
+  if (pat !== null && pat < 0) redFlags.push("net loss position");
 
   let s3 = "";
   if (redFlags.length > 0) {
@@ -333,10 +614,10 @@ function buildExecutiveSummary({
   }
 
   // Sentence 4 — audit & verdict
-  const opinion      = rawField(extractions, "opinion_type");
+  const opinion = rawField(extractions, "opinion_type");
   const goingConcern = rawField(extractions, "going_concern_uncertainty");
-  const bucket       = modelOutput?.decision_bucket;
-  const meta         = bucket ? BUCKET_META[bucket] : null;
+  const bucket = modelOutput?.decision_bucket;
+  const meta = bucket ? BUCKET_META[bucket] : null;
   let s4 = "";
   if (opinion) {
     const opStr = String(opinion);
@@ -366,12 +647,12 @@ function computeRadarScores({
 
   // Profitability — higher is better
   const ebitdaM = featVal("ebitda_margin");
-  const patM    = featVal("pat_margin");
-  const roa     = featVal("roa");
+  const patM = featVal("pat_margin");
+  const roa = featVal("roa");
   const profComponents: number[] = [];
   if (ebitdaM !== null) profComponents.push(clamp01((ebitdaM + 0.05) / 0.30) * 100);
-  if (patM !== null)    profComponents.push(clamp01((patM    + 0.05) / 0.20) * 100);
-  if (roa !== null)     profComponents.push(clamp01((roa     + 0.02) / 0.18) * 100);
+  if (patM !== null) profComponents.push(clamp01((patM + 0.05) / 0.20) * 100);
+  if (roa !== null) profComponents.push(clamp01((roa + 0.02) / 0.18) * 100);
   const profScore = profComponents.length > 0 ? profComponents.reduce((a, b) => a + b, 0) / profComponents.length : 50;
 
   // Leverage — lower debt = higher score (invert)
@@ -392,32 +673,32 @@ function computeRadarScores({
 
   // Scale — log total assets, normalised roughly over Indian corp range (₹10cr–₹100,000cr)
   const assets = numericField(extractions, "total_assets");
-  const logA   = assets !== null && assets > 0 ? Math.log10(assets) : null;
+  const logA = assets !== null && assets > 0 ? Math.log10(assets) : null;
   const scaleScore = logA !== null ? clamp01((logA - 1) / 4.5) * 100 : 50;
 
   // Governance — audit opinion + flags
-  const opinion      = rawField(extractions, "opinion_type");
+  const opinion = rawField(extractions, "opinion_type");
   const goingConcern = rawField(extractions, "going_concern_uncertainty");
-  const fraud        = rawField(extractions, "fraud_reported");
-  const emph         = rawField(extractions, "emphasis_of_matter");
+  const fraud = rawField(extractions, "fraud_reported");
+  const emph = rawField(extractions, "emphasis_of_matter");
   let govScore = 75; // default neutral-good
   if (opinion) {
     const op = String(opinion).toLowerCase();
-    if (op.includes("unqualif"))                     govScore = 85;
-    else if (op.includes("qualif"))                  govScore = 35;
+    if (op.includes("unqualif")) govScore = 85;
+    else if (op.includes("qualif")) govScore = 35;
     else if (op.includes("adverse") || op.includes("disclaimer")) govScore = 10;
   }
   if (goingConcern) govScore = Math.max(govScore - 30, 5);
-  if (fraud)        govScore = Math.max(govScore - 40, 5);
-  if (emph)         govScore = Math.max(govScore - 10, 20);
+  if (fraud) govScore = Math.max(govScore - 40, 5);
+  if (emph) govScore = Math.max(govScore - 10, 20);
 
   return [
     { label: "Profitability", score: Math.round(profScore) },
-    { label: "Leverage",      score: Math.round(levScore)  },
-    { label: "Liquidity",     score: Math.round(liqScore)  },
-    { label: "Cash Quality",  score: Math.round(cashScore) },
-    { label: "Scale",         score: Math.round(scaleScore)},
-    { label: "Governance",    score: Math.round(govScore)  },
+    { label: "Leverage", score: Math.round(levScore) },
+    { label: "Liquidity", score: Math.round(liqScore) },
+    { label: "Cash Quality", score: Math.round(cashScore) },
+    { label: "Scale", score: Math.round(scaleScore) },
+    { label: "Governance", score: Math.round(govScore) },
   ];
 }
 
@@ -440,27 +721,32 @@ function upsertSection(current: ReportSection[], next: ReportSection) {
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function ReportRunWorkspace({ jobId }: { jobId: string }) {
-  const [status,   setStatus]   = useState<ReportStatusResponse | null>(null);
-  const [result,   setResult]   = useState<ReportJobResult | null>(null);
+  const [status, setStatus] = useState<ReportStatusResponse | null>(null);
+  const [result, setResult] = useState<ReportJobResult | null>(null);
   const [sections, setSections] = useState<ReportSection[]>([]);
   const [messages, setMessages] = useState<string[]>([]);
-  const [error,    setError]    = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [showStatements, setShowStatements] = useState(false);
   const [lightMode, setLightMode] = useState(false);
 
   const progress = status?.progress_pct ?? 0;
-  const failed   = status?.status === "failed";
+  const failed = status?.status === "failed";
 
-  // EventSource
+  // EventSource — closes as soon as the job reaches a terminal state so the
+  // browser doesn't auto-reconnect in a loop.
   useEffect(() => {
     const es = new EventSource(`/api/reports/${encodeURIComponent(jobId)}/events`);
+    let closed = false;
+    let resultFetched = false;
+    const safeClose = () => { if (!closed) { closed = true; es.close(); } };
 
     es.addEventListener("job.status", ((e: MessageEvent<string>) => {
       const p = JSON.parse(e.data) as ReportEvent;
       const d = p.data as Partial<ReportStatusResponse>;
+      const nextStatus = (d.status as ReportStatusResponse["status"]) ?? "queued";
       setStatus((cur) => ({
         job_id: jobId,
-        status: (d.status as ReportStatusResponse["status"]) ?? cur?.status ?? "queued",
+        status: nextStatus ?? cur?.status ?? "queued",
         progress_pct: typeof d.progress_pct === "number" ? d.progress_pct : cur?.progress_pct ?? 0,
         current_stage: typeof d.current_stage === "string" ? d.current_stage : cur?.current_stage ?? "queued",
         message: typeof d.message === "string" ? d.message : cur?.message ?? null,
@@ -470,6 +756,9 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
         error: cur?.error ?? null,
         warnings: cur?.warnings ?? [],
       }));
+      if (nextStatus === "completed" || nextStatus === "failed") {
+        safeClose();
+      }
     }) as EventListener);
 
     es.addEventListener("job.progress", ((e: MessageEvent<string>) => {
@@ -485,22 +774,43 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
     }) as EventListener);
 
     es.addEventListener("job.complete", (() => {
+      safeClose();
+      if (resultFetched) return;
+      resultFetched = true;
       fetchReportResult(jobId)
         .then((r) => { setResult(r); setSections(r.sections); })
         .catch((e) => setError(e instanceof Error ? e.message : "Failed to fetch report."));
     }) as EventListener);
 
+    // Fire only on genuine disconnects while still streaming — once we've
+    // deliberately closed the stream we must not re-fetch status, or the
+    // browser reconnect loop will keep hammering the backend.
     es.addEventListener("error", () => {
-      fetchReportStatus(jobId).then(setStatus).catch(() => null);
+      if (closed) return;
+      fetchReportStatus(jobId)
+        .then((s) => {
+          setStatus(s);
+          if (s.status === "completed" || s.status === "failed") safeClose();
+        })
+        .catch(() => null);
     });
 
-    return () => es.close();
+    return () => { safeClose(); };
   }, [jobId]);
 
-  // Polling fallback
+  // Polling fallback — stops as soon as the job reaches a terminal state.
   useEffect(() => {
     const ctrl = new AbortController();
     let cancelled = false;
+    let iv: number | null = null;
+    let resultFetched = false;
+
+    const stopPolling = () => {
+      if (iv !== null) {
+        clearInterval(iv);
+        iv = null;
+      }
+    };
 
     async function poll() {
       try {
@@ -508,23 +818,29 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
         if (cancelled) return;
         setStatus(s);
         if (s.status === "completed") {
-          const r = await fetchReportResult(jobId, ctrl.signal);
-          if (!cancelled) { setResult(r); setSections(r.sections); }
+          stopPolling();
+          if (!resultFetched) {
+            resultFetched = true;
+            const r = await fetchReportResult(jobId, ctrl.signal);
+            if (!cancelled) { setResult(r); setSections(r.sections); }
+          }
+        } else if (s.status === "failed") {
+          stopPolling();
         }
       } catch { /* swallow */ }
     }
 
     poll();
-    const iv = window.setInterval(poll, 2500);
-    return () => { cancelled = true; clearInterval(iv); ctrl.abort(); };
+    iv = window.setInterval(poll, 2500);
+    return () => { cancelled = true; stopPolling(); ctrl.abort(); };
   }, [jobId]);
 
   // Derived data
-  const extractions       = useMemo(() => result?.extractions ?? [],  [result]);
-  const features          = useMemo(() => result?.features ?? [],     [result]);
-  const derived           = useMemo(() => computeDerived(extractions),      [extractions]);
-  const supplementary     = useMemo(() => computeSupplementary(extractions), [extractions]);
-  const isStreaming        = result === null && sections.length > 0;
+  const extractions = useMemo(() => result?.extractions ?? [], [result]);
+  const features = useMemo(() => result?.features ?? [], [result]);
+  const derived = useMemo(() => computeDerived(extractions), [extractions]);
+  const supplementary = useMemo(() => computeSupplementary(extractions), [extractions]);
+  const isStreaming = result === null && sections.length > 0;
 
   const sortedSections = useMemo(() =>
     [...sections].sort((a, b) => {
@@ -532,7 +848,7 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
       const bi = SECTION_ORDER.indexOf(b.section_id);
       return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
     }),
-  [sections]);
+    [sections]);
 
   const radarAxes = useMemo(
     () => result !== null ? computeRadarScores({ features, extractions, derived }) : null,
@@ -551,6 +867,25 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
     window.setTimeout(() => {
       document.title = previousTitle;
     }, 250);
+  };
+
+  const handleExportCsv = () => {
+    if (typeof window === "undefined" || result === null) return;
+    const csv = buildReportCsv(result, derived, supplementary);
+    const safeName = (result.company?.company_name ?? "fulcrum_report")
+      .replace(/[^A-Za-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "fulcrum_report";
+    const fy = result.company?.financial_year ? `_FY${result.company.financial_year}` : "";
+    downloadBlob(`${safeName}${fy}.csv`, csv, "text/csv;charset=utf-8;");
+  };
+
+  const handleExportJson = () => {
+    if (typeof window === "undefined" || result === null) return;
+    const safeName = (result.company?.company_name ?? "fulcrum_report")
+      .replace(/[^A-Za-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "fulcrum_report";
+    const fy = result.company?.financial_year ? `_FY${result.company.financial_year}` : "";
+    downloadBlob(`${safeName}${fy}.json`, JSON.stringify(result, null, 2), "application/json;charset=utf-8;");
   };
 
   return (
@@ -632,6 +967,7 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
             />
             <AnalystMemoBlock sections={sortedSections} isStreaming={isStreaming} />
             <RatioAppendixBlock features={features} supplementary={supplementary} />
+            {result !== null && <AltmanZBlock derived={derived} />}
             {result !== null && (
               <SectorBenchmarkBlock
                 sector={result.company.sector}
@@ -657,14 +993,49 @@ export function ReportRunWorkspace({ jobId }: { jobId: string }) {
       </div>
 
       {result !== null && (
-        <button
-          className="print-action fixed bottom-5 right-5 z-40 rounded-md border border-white/[0.14] bg-[#0c0f14]/95 px-3.5 py-2 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-[#d7dde7] shadow-[0_12px_28px_rgba(0,0,0,0.32)] transition hover:bg-white/[0.08]"
-          onClick={handlePrint}
-          type="button"
-          title="Print or save this report as PDF"
+        <div
+          className="print-action fixed bottom-5 right-5 z-40 flex items-center gap-1 rounded-md border border-white/[0.14] bg-[#0c0f14]/95 p-1 shadow-[0_12px_28px_rgba(0,0,0,0.32)] backdrop-blur-sm"
+          role="group"
+          aria-label="Report exports"
         >
-          Print
-        </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-[#d7dde7] transition hover:bg-white/[0.08]"
+            onClick={handlePrint}
+            type="button"
+            title="Open print dialog · choose 'Save as PDF' to export"
+          >
+            <svg aria-hidden="true" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4.5 5V2.5h7V5" />
+              <rect x="3" y="5" width="10" height="6" rx="0.5" />
+              <path d="M4.5 11v2.5h7V11" />
+              <path d="M11.5 7.5h.01" />
+            </svg>
+            PDF
+          </button>
+          <span aria-hidden="true" className="h-4 w-px bg-white/[0.08]" />
+          <button
+            className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-[#d7dde7] transition hover:bg-white/[0.08]"
+            onClick={handleExportCsv}
+            type="button"
+            title="Download the full report as CSV"
+          >
+            <svg aria-hidden="true" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 2.5v8" />
+              <path d="M4.5 7L8 10.5 11.5 7" />
+              <path d="M3 13h10" />
+            </svg>
+            CSV
+          </button>
+          <span aria-hidden="true" className="h-4 w-px bg-white/[0.08]" />
+          <button
+            className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-[#94a3b8] transition hover:bg-white/[0.08] hover:text-[#d7dde7]"
+            onClick={handleExportJson}
+            type="button"
+            title="Download the raw report payload as JSON"
+          >
+            JSON
+          </button>
+        </div>
       )}
 
       {showStatements ? (
@@ -791,12 +1162,12 @@ function FinancialSummaryBlock({
   const get = (f: string) => numericField(extractions, f);
   const raw = (f: string) => rawField(extractions, f);
 
-  const revenue  = get("revenue");
-  const ebitda   = get("ebitda");
-  const pat      = get("pat");
-  const assets   = get("total_assets");
-  const borr     = get("total_borrowings");
-  const equity   = get("total_equity");
+  const revenue = get("revenue");
+  const ebitda = get("ebitda");
+  const pat = get("pat");
+  const assets = get("total_assets");
+  const borr = get("total_borrowings");
+  const equity = get("total_equity");
   const cfo = get("cfo");
   const ncc = get("net_cash_change");
 
@@ -909,7 +1280,7 @@ function RatioAppendixBlock({
   supplementary: SupplementaryRatio[];
 }) {
   const modelFeatures = features.filter((f) => !["log_total_assets", "log_revenue"].includes(f.feature));
-  const scaleFeatures = features.filter((f) =>  ["log_total_assets", "log_revenue"].includes(f.feature));
+  const scaleFeatures = features.filter((f) => ["log_total_assets", "log_revenue"].includes(f.feature));
 
   return (
     <div className="p-6 lg:p-8">
@@ -983,8 +1354,8 @@ function ModelVerdictPanel({
   decision: ReportJobResult["decision"] | null;
 }) {
   const bucket = modelOutput?.decision_bucket ?? null;
-  const meta   = bucket ? BUCKET_META[bucket] : null;
-  const score  = modelOutput?.engine_score_0_100 ?? null;
+  const meta = bucket ? BUCKET_META[bucket] : null;
+  const score = modelOutput?.engine_score_0_100 ?? null;
 
   return (
     <div className="p-5">
@@ -1007,12 +1378,12 @@ function ModelVerdictPanel({
           </div>
 
           {/* Secondary scores */}
-          <DataRow label="Audit score"    value={modelOutput.audit_score_0_100.toFixed(1)} />
-          <DataRow label="Alignment"      value={modelOutput.model_alignment}
+          <DataRow label="Audit score" value={modelOutput.audit_score_0_100.toFixed(1)} />
+          <DataRow label="Alignment" value={modelOutput.model_alignment}
             valueClass={modelOutput.model_alignment === "disagree" ? "text-[#f59e0b]" : "text-[#94a3b8]"} />
-          <DataRow label="Risk band"      value={modelOutput.engine_risk_band}
+          <DataRow label="Risk band" value={modelOutput.engine_risk_band}
             valueClass={modelOutput.engine_risk_band === "HIGH" ? "text-[#ef4444]" : modelOutput.engine_risk_band === "MEDIUM" ? "text-[#f59e0b]" : "text-[#60a5fa]"} />
-          <DataRow label="Probability"    value={(modelOutput.engine_probability * 100).toFixed(1) + "%"} />
+          <DataRow label="Probability" value={(modelOutput.engine_probability * 100).toFixed(1) + "%"} />
 
           {/* Top drivers */}
           {modelOutput.top_drivers.length > 0 && (
@@ -1056,12 +1427,12 @@ function AuditGovernancePanel({ extractions }: { extractions: ExtractedField[] }
   const raw = (f: string) => rawField(extractions, f);
 
   const auditFields = [
-    { label: "Auditor",             value: String(raw("auditor_name") ?? "—"),   signal: "ok" as RiskSignal },
-    { label: "Opinion",             value: String(raw("opinion_type") ?? "—"),   signal: "ok" as RiskSignal },
-    { label: "Emphasis of matter",  value: raw("emphasis_of_matter")  ? "Yes" : "No", signal: (raw("emphasis_of_matter")  ? "caution" : "ok") as RiskSignal },
-    { label: "Going concern",       value: raw("going_concern_uncertainty") ? "Yes" : "No", signal: (raw("going_concern_uncertainty") ? "warn" : "ok") as RiskSignal },
-    { label: "Fraud reported",      value: raw("fraud_reported")   ? "Yes" : "No", signal: (raw("fraud_reported")   ? "warn" : "ok") as RiskSignal },
-    { label: "Promoter holding",    value: numericField(extractions, "promoter_holding_pct") !== null ? `${numericField(extractions, "promoter_holding_pct")}%` : "—", signal: "ok" as RiskSignal },
+    { label: "Auditor", value: String(raw("auditor_name") ?? "—"), signal: "ok" as RiskSignal },
+    { label: "Opinion", value: String(raw("opinion_type") ?? "—"), signal: "ok" as RiskSignal },
+    { label: "Emphasis of matter", value: raw("emphasis_of_matter") ? "Yes" : "No", signal: (raw("emphasis_of_matter") ? "caution" : "ok") as RiskSignal },
+    { label: "Going concern", value: raw("going_concern_uncertainty") ? "Yes" : "No", signal: (raw("going_concern_uncertainty") ? "warn" : "ok") as RiskSignal },
+    { label: "Fraud reported", value: raw("fraud_reported") ? "Yes" : "No", signal: (raw("fraud_reported") ? "warn" : "ok") as RiskSignal },
+    { label: "Promoter holding", value: numericField(extractions, "promoter_holding_pct") !== null ? `${numericField(extractions, "promoter_holding_pct")}%` : "—", signal: "ok" as RiskSignal },
   ];
 
   if (extractions.length === 0) return null;
@@ -1093,7 +1464,7 @@ function ValidationPanel({ issues }: { issues: ReportJobResult["validation_issue
 
   const critical = issues.filter((i) => i.severity === "critical" || i.severity === "error");
   const warnings = issues.filter((i) => i.severity === "warning");
-  const info     = issues.filter((i) => i.severity === "info" || !["critical","error","warning"].includes(i.severity));
+  const info = issues.filter((i) => i.severity === "info" || !["critical", "error", "warning"].includes(i.severity));
 
   return (
     <div className="p-5">
@@ -1158,13 +1529,13 @@ function ExecutiveCalloutBlock({
   if (sentences.length === 0) return null;
 
   const bucket = modelOutput?.decision_bucket ?? null;
-  const meta   = bucket ? BUCKET_META[bucket] : null;
-  const score  = modelOutput?.engine_score_0_100 ?? null;
+  const meta = bucket ? BUCKET_META[bucket] : null;
+  const score = modelOutput?.engine_score_0_100 ?? null;
 
   const accentColor =
     score !== null && score >= 65 ? "border-l-[#ef4444]" :
-    score !== null && score >= 45 ? "border-l-[#f59e0b]" :
-    "border-l-[#60a5fa]";
+      score !== null && score >= 45 ? "border-l-[#f59e0b]" :
+        "border-l-[#60a5fa]";
 
   return (
     <div className={`border-l-2 p-6 lg:p-8 ${accentColor}`}>
@@ -1308,66 +1679,244 @@ function SectorBenchmarkBlock({
   };
 
   const rows: BenchRow[] = [
-    { label: "Debt / assets",   company: featVal("debt_to_assets") ?? derived.debtToAssets, median: bench.debt_to_assets, fmt: fmtRatio, lowerIsBetter: true },
-    { label: "EBITDA margin",   company: featVal("ebitda_margin"),  median: bench.ebitda_margin, fmt: (v: number | null) => fmtPct(v) },
-    { label: "PAT margin",      company: featVal("pat_margin"),     median: bench.pat_margin,    fmt: (v: number | null) => fmtPct(v) },
-    { label: "ROA",             company: featVal("roa"),            median: bench.roa,           fmt: (v: number | null) => fmtPct(v) },
-    { label: "Current ratio",   company: cr,                        median: bench.current_ratio, fmt: fmtRatio },
-    { label: "CFO / EBITDA",    company: featVal("cfo_to_ebitda"),  median: bench.cfo_to_ebitda, fmt: fmtRatio },
+    { label: "Debt / assets", company: featVal("debt_to_assets") ?? derived.debtToAssets, median: bench.debt_to_assets, fmt: fmtRatio, lowerIsBetter: true },
+    { label: "EBITDA margin", company: featVal("ebitda_margin"), median: bench.ebitda_margin, fmt: (v: number | null) => fmtPct(v) },
+    { label: "PAT margin", company: featVal("pat_margin"), median: bench.pat_margin, fmt: (v: number | null) => fmtPct(v) },
+    { label: "ROA", company: featVal("roa"), median: bench.roa, fmt: (v: number | null) => fmtPct(v) },
+    { label: "Current ratio", company: cr, median: bench.current_ratio, fmt: fmtRatio },
+    { label: "CFO / EBITDA", company: featVal("cfo_to_ebitda"), median: bench.cfo_to_ebitda, fmt: fmtRatio },
   ].filter((row) => row.company !== null);
 
   if (rows.length === 0) return null;
 
-  function delta(row: BenchRow) {
-    if (row.company === null) return { label: "—", color: "text-[#475569]" };
+  function clampBar(v: number) { return Math.max(0, Math.min(1, v)); }
+
+  function evaluate(row: BenchRow) {
+    if (row.company === null) {
+      return { label: "—", tone: "text-[#475569]", barColor: "bg-white/[0.10]" };
+    }
     const c = row.company;
     const m = row.median;
-    const pct = (c - m) / Math.abs(m);
+    const pctGap = (c - m) / (Math.abs(m) || 1e-9);
+    const magnitude = Math.abs(pctGap);
     const isGood = row.lowerIsBetter ? c <= m : c >= m;
-    const isBad  = row.lowerIsBetter ? c > m  : c < m;
-    const magnitude = Math.abs(pct);
-    if (magnitude < 0.08) return { label: "≈ median", color: "text-[#94a3b8]" };
-    const adjective = magnitude > 0.25 ? (c > m ? "well above" : "well below") : (c > m ? "above" : "below");
+    if (magnitude < 0.08) {
+      return { label: "≈ median", tone: "text-[#94a3b8]", barColor: "bg-[#94a3b8]/70" };
+    }
+    const direction = c > m ? "above" : "below";
+    const adjective = magnitude > 0.25 ? `well ${direction}` : direction;
+    const tone = isGood ? "text-[#4ade80]" : "text-[#ef4444]";
+    const barColor = isGood ? "bg-[#4ade80]/70" : "bg-[#ef4444]/70";
+    return { label: adjective, tone, barColor };
+  }
+
+  // Percentile estimate assuming a peer distribution where median ≈ 50th pct
+  // and 2× the median distance ≈ ±25 percentile points. Purely illustrative
+  // (real percentiles require distribution data).
+  function estimatePercentile(row: BenchRow): number | null {
+    if (row.company === null) return null;
+    const c = row.company;
+    const m = row.median;
+    const ratio = (c - m) / (Math.abs(m) || 1e-9);
+    const raw = 50 + ratio * 50;
+    const adjusted = row.lowerIsBetter ? 100 - raw : raw;
+    return Math.max(1, Math.min(99, Math.round(adjusted)));
+  }
+
+  // Range for the visual bar: 0 to 2× the larger of company/median
+  function barGeometry(row: BenchRow) {
+    if (row.company === null) return { companyPct: 0, medianPct: 0, scaleMax: 1 };
+    const max = Math.max(Math.abs(row.company), Math.abs(row.median)) * 2;
+    const scaleMax = max > 0 ? max : 1;
     return {
-      label: adjective,
-      color: isGood ? "text-[#4ade80]" : isBad ? "text-[#ef4444]" : "text-[#f59e0b]",
+      companyPct: clampBar((row.company + scaleMax / 2) / scaleMax),
+      medianPct: clampBar((row.median + scaleMax / 2) / scaleMax),
+      scaleMax,
     };
   }
 
   return (
     <div className="p-6 lg:p-8">
-      <SectionHeader label={`vs. ${bench.name} sector`} sub="indicative benchmarks · sector medians" />
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <SectionHeader label={`Peer benchmarks · ${bench.name}`} sub="company vs. indicative sector median" />
+          <p className="mt-3 max-w-3xl text-[0.9rem] leading-7 text-[#94a3b8]">
+            Each row compares the company to the indicative sector median on a normalised bar. Percentile is a
+            rank-equivalent estimate against the peer distribution; values near 50 sit close to the median.
+          </p>
+        </div>
+      </div>
+
       <div className="mt-5 overflow-hidden rounded border border-white/[0.07]">
+        <div className="grid grid-cols-[1.6fr_0.8fr_2fr_0.8fr_0.7fr] items-center gap-3 border-b border-white/[0.07] bg-white/[0.02] px-4 py-3 text-[0.62rem] font-semibold uppercase tracking-[0.22em] text-[#64748b]">
+          <span>Metric</span>
+          <span className="text-right">Company</span>
+          <span className="text-center">Distribution</span>
+          <span className="text-right">Median</span>
+          <span className="text-right">Pctile</span>
+        </div>
+        <div className="divide-y divide-white/[0.04]">
+          {rows.map((row) => {
+            const ev = evaluate(row);
+            const geom = barGeometry(row);
+            const pctile = estimatePercentile(row);
+            return (
+              <div
+                key={row.label}
+                className="grid grid-cols-[1.6fr_0.8fr_2fr_0.8fr_0.7fr] items-center gap-3 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[0.9rem] text-[#cbd5e1]">{row.label}</p>
+                  <p className={`mt-0.5 truncate text-[0.64rem] font-medium uppercase tracking-[0.18em] ${ev.tone}`}>
+                    {ev.label}
+                  </p>
+                </div>
+                <p className="text-right font-mono text-[0.92rem] font-medium tabular-nums text-[#d7dde7]">
+                  {row.fmt(row.company)}
+                </p>
+                <div className="relative h-2 rounded-full bg-white/[0.05]">
+                  {/* Median tick */}
+                  <div
+                    className="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-[#64748b]"
+                    style={{ left: `${geom.medianPct * 100}%` }}
+                    aria-hidden="true"
+                  />
+                  {/* Company marker */}
+                  <div
+                    className={`absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-[#0c0f14] ${ev.barColor}`}
+                    style={{ left: `${geom.companyPct * 100}%` }}
+                    aria-hidden="true"
+                  />
+                </div>
+                <p className="text-right font-mono text-[0.8rem] tabular-nums text-[#475569]">
+                  {row.fmt(row.median)}
+                </p>
+                <p className={`text-right font-mono text-[0.82rem] font-semibold tabular-nums ${ev.tone}`}>
+                  {pctile !== null ? `P${pctile}` : "—"}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[0.6rem] uppercase tracking-[0.18em] text-[#475569]">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-[#4ade80]/70" /> Better than peer
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-[#ef4444]/70" /> Worse than peer
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-3 w-px bg-[#64748b]" /> Sector median
+        </span>
+      </div>
+      <p className="mt-3 text-[0.62rem] text-[#334155]">
+        Benchmarks are indicative sector medians for Indian corporates, curated from the Fulcrum cohort and
+        public filings. Percentile estimates are directional — sub-sector and vintage effects are not resolved.
+      </p>
+    </div>
+  );
+}
+
+// ─── Altman Z' block ─────────────────────────────────────────────────────────
+
+function AltmanZBlock({ derived }: { derived: DerivedMetrics }) {
+  const z = derived.altmanZ;
+  const zone = altmanZone(z);
+  const c = derived.altmanZComponents;
+
+  // Position on zone bar (0–5 visual scale; compresses tails)
+  const BAR_MIN = 0;
+  const BAR_MAX = 5;
+  const pctRaw = z !== null && Number.isFinite(z) ? (z - BAR_MIN) / (BAR_MAX - BAR_MIN) : null;
+  const pct = pctRaw === null ? null : Math.max(0.02, Math.min(0.98, pctRaw));
+
+  const fmtComponent = (v: number | null) =>
+    v === null || !Number.isFinite(v) ? "—" : v.toFixed(3);
+
+  const components: { label: string; value: number | null; weight: number; weighted: number | null }[] = [
+    { label: "Working capital / assets", value: c.wcToAssets, weight: 0.717, weighted: c.wcToAssets !== null ? 0.717 * c.wcToAssets : null },
+    { label: "Retained earnings / assets", value: c.reToAssets, weight: 0.847, weighted: c.reToAssets !== null ? 0.847 * c.reToAssets : null },
+    { label: "EBIT / assets", value: c.ebitToAssets, weight: 3.107, weighted: c.ebitToAssets !== null ? 3.107 * c.ebitToAssets : null },
+    { label: "Book equity / liabilities", value: c.equityToLiabilities, weight: 0.420, weighted: c.equityToLiabilities !== null ? 0.420 * c.equityToLiabilities : null },
+    { label: "Revenue / assets", value: c.revenueToAssets, weight: 0.998, weighted: c.revenueToAssets !== null ? 0.998 * c.revenueToAssets : null },
+  ];
+
+  return (
+    <div className={`border-l-2 p-6 lg:p-8 ${zone.accentClass}`}>
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <SectionHeader label="Altman Z′ score" sub="private-firm bankruptcy prediction · Altman 1983" />
+          <p className="mt-3 max-w-3xl text-[0.9rem] leading-7 text-[#94a3b8]">
+            A canonical reference score used by credit committees for over forty years. This is the private-firm
+            variant (Z′) — weights and thresholds differ from the public-market Z used for listed equities.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[0.6rem] uppercase tracking-[0.22em] text-[#475569]">Z′ score</p>
+          <p className={`mt-1 font-mono text-4xl font-bold tabular-nums ${zone.textClass}`}>
+            {z === null || !Number.isFinite(z) ? "—" : z.toFixed(2)}
+          </p>
+          <p className={`mt-1 text-[0.72rem] font-semibold ${zone.textClass}`}>{zone.label}</p>
+        </div>
+      </div>
+
+      {/* Zone bar */}
+      <div className="mt-6">
+        <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/[0.04]">
+          <div className="absolute inset-y-0 left-0 bg-[#ef4444]/40" style={{ width: `${(1.23 / BAR_MAX) * 100}%` }} />
+          <div className="absolute inset-y-0 bg-[#f59e0b]/40" style={{ left: `${(1.23 / BAR_MAX) * 100}%`, width: `${((2.90 - 1.23) / BAR_MAX) * 100}%` }} />
+          <div className="absolute inset-y-0 bg-[#4ade80]/40" style={{ left: `${(2.90 / BAR_MAX) * 100}%`, right: 0 }} />
+          {pct !== null && (
+            <div
+              className="absolute top-1/2 h-4 w-0.5 -translate-y-1/2 bg-white shadow-[0_0_0_2px_rgba(0,0,0,0.5)]"
+              style={{ left: `${pct * 100}%` }}
+              aria-hidden="true"
+            />
+          )}
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2 font-mono text-[0.58rem] uppercase tracking-[0.18em] text-[#475569]">
+          <span className="text-left">Distress &lt; 1.23</span>
+          <span className="text-center">Grey 1.23 – 2.90</span>
+          <span className="text-right">Safe &gt; 2.90</span>
+        </div>
+        <p className={`mt-4 text-[0.82rem] leading-6 ${zone.textClass}`}>{zone.description}</p>
+      </div>
+
+      {/* Component breakdown */}
+      <div className="mt-6 overflow-hidden rounded border border-white/[0.07]">
         <table className="w-full border-collapse">
           <thead className="bg-white/[0.02]">
             <tr className="border-b border-white/[0.07]">
-              {["Metric", "Company", "Sector median", "vs. peer"].map((h, i) => (
-                <th
-                  key={h}
-                  className={`px-4 py-3 text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#64748b] ${i === 0 ? "text-left" : "text-right"}`}
-                >
-                  {h}
-                </th>
-              ))}
+              <th className="px-4 py-3 text-left text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#64748b]">Component</th>
+              <th className="px-4 py-3 text-right text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#64748b]">Ratio</th>
+              <th className="px-4 py-3 text-right text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#64748b]">Weight</th>
+              <th className="px-4 py-3 text-right text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#64748b]">Contribution</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.04]">
-            {rows.map((row) => {
-              const d = delta(row);
-              return (
-                <tr key={row.label}>
-                  <td className="px-4 py-3 text-[0.9rem] text-[#94a3b8]">{row.label}</td>
-                  <td className="px-4 py-3 text-right font-mono text-[0.9rem] font-medium text-[#d7dde7]">{row.fmt(row.company)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-[0.82rem] text-[#475569]">{row.fmt(row.median)}</td>
-                  <td className={`px-4 py-3 text-right text-[0.8rem] font-medium ${d.color}`}>{d.label}</td>
-                </tr>
-              );
-            })}
+            {components.map((row) => (
+              <tr key={row.label}>
+                <td className="px-4 py-3 text-[0.9rem] text-[#cbd5e1]">{row.label}</td>
+                <td className="px-4 py-3 text-right font-mono text-[0.9rem] tabular-nums text-[#d7dde7]">{fmtComponent(row.value)}</td>
+                <td className="px-4 py-3 text-right font-mono text-[0.78rem] tabular-nums text-[#64748b]">{row.weight.toFixed(3)}</td>
+                <td className="px-4 py-3 text-right font-mono text-[0.9rem] tabular-nums text-[#94a3b8]">{fmtComponent(row.weighted)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
+
+      {z === null && (
+        <p className="mt-3 text-[0.72rem] text-[#64748b]">
+          Z′ not computed: requires working capital, retained earnings, EBIT, book equity, total liabilities,
+          revenue and total assets — one or more were missing from extraction.
+        </p>
+      )}
       <p className="mt-3 text-[0.62rem] text-[#334155]">
-        Benchmarks are indicative sector medians for Indian corporates. Actual peer ranges vary by sub-sector and year.
+        Reference only — Altman Z′ is a classic academic score. Fulcrum&apos;s engine model is calibrated to the
+        Indian wilful-defaulter cohort and remains the primary decision input.
       </p>
     </div>
   );
@@ -1506,3 +2055,4 @@ function StatementsModal({
     </div>
   );
 }
+
